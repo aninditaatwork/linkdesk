@@ -7,6 +7,7 @@ const SUPABASE_URL = "https://sobwdyjbgecipxhvhrtu.supabase.co"
 const SUPABASE_ANON_KEY = "sb_publishable_5_Y3NIGFNQK-zyyE_DVKcA_tpclZ9g8"
 const EDGE_FN_URL = `${SUPABASE_URL}/functions/v1/characterize-links`
 const CLUSTER_FN_URL = `${SUPABASE_URL}/functions/v1/cluster-links`
+const SEARCH_FN_URL = `${SUPABASE_URL}/functions/v1/search-links`
 
 const supabase = (globalThis as Record<string, unknown>).__supabase as ReturnType<typeof createClient> ||
   (() => {
@@ -640,14 +641,50 @@ function ImportView({ onImportDone, onCancel }: { onImportDone: () => void; onCa
 
 function SearchView({ links, onCardClick, onClose }: { links: SavedLink[]; onCardClick: (l: SavedLink) => void; onClose: () => void }) {
   const [query, setQuery] = useState("")
+  const [results, setResults] = useState<SavedLink[]>([])
+  const [searching, setSearching] = useState(false)
 
-  const results = useMemo(() => {
-    if (!query.trim()) return []
-    const q = query.toLowerCase()
-    return links.filter(link => {
-      const haystack = [link.title, link.summary, link.vibe, link.category, link.user_note, link.description, link.platform, ...(Array.isArray(link.tags) ? link.tags : [])].join(" ").toLowerCase()
-      return q.split(" ").every(word => haystack.includes(word))
-    })
+  useEffect(() => {
+    if (!query.trim()) { setResults([]); return }
+    const timer = setTimeout(async () => {
+      setSearching(true)
+
+      // Kick off semantic search fetch immediately
+      const semanticPromise = fetch(SEARCH_FN_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+        body: JSON.stringify({ query: query.trim() }),
+      })
+
+      // Run local keyword filter synchronously while fetch is in flight
+      const q = query.toLowerCase()
+      const keywordResults = links.filter(link => {
+        const haystack = [
+          link.title, link.summary, link.vibe, link.category,
+          link.user_note, link.description, link.platform,
+          ...(Array.isArray(link.tags) ? link.tags : []),
+        ].join(" ").toLowerCase()
+        return q.split(" ").every(word => haystack.includes(word))
+      })
+
+      try {
+        const res = await semanticPromise
+        if (!res.ok) throw new Error("Search failed")
+        const { results: semanticHits } = await res.json()
+        const hits: SavedLink[] = semanticHits ?? []
+
+        // Merge: semantic first, append any keyword-only matches not already present
+        const seen = new Set(hits.map(l => l.id))
+        const combined = [...hits, ...keywordResults.filter(l => !seen.has(l.id))]
+        setResults(combined)
+      } catch (_) {
+        // Semantic failed — fall back to keyword results only
+        setResults(keywordResults)
+      } finally {
+        setSearching(false)
+      }
+    }, 500)
+    return () => clearTimeout(timer)
   }, [query, links])
 
   return (
@@ -682,12 +719,17 @@ function SearchView({ links, onCardClick, onClose }: { links: SavedLink[]; onCar
             <p className="text-sm">Type to search across titles, vibes, tags, summaries</p>
           </div>
         )}
-        {query && results.length === 0 && (
+        {query && searching && (
+          <div className="text-center py-20">
+            <Loader2 size={20} className="animate-spin mx-auto opacity-30" />
+          </div>
+        )}
+        {query && !searching && results.length === 0 && (
           <div className="text-center py-20 opacity-40">
             <p className="text-sm">Nothing found for "{query}"</p>
           </div>
         )}
-        {results.length > 0 && (
+        {!searching && results.length > 0 && (
           <>
             <p className="text-xs text-muted-foreground mb-5 opacity-60">{results.length} result{results.length !== 1 ? "s" : ""}</p>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 max-w-6xl mx-auto">
@@ -917,7 +959,11 @@ export default function App() {
             category={activeCategory}
             links={categoryLinks}
             onBack={() => { setView("desk"); setActiveCategory(null) }}
-            onCardClick={setSelectedLink}
+            onCardClick={link => {
+              setActiveCategory(link.category)
+              setView("category")
+              setSelectedLink(link)
+            }}
           />
         ) : (
           <LandingView
@@ -934,7 +980,11 @@ export default function App() {
         {showSearch && (
           <SearchView
             links={links}
-            onCardClick={link => { setSelectedLink(link); setShowSearch(false) }}
+            onCardClick={link => {
+              setShowSearch(false)
+              if (link.category) { setActiveCategory(link.category); setView("category") }
+              setSelectedLink(link)
+            }}
             onClose={() => setShowSearch(false)}
           />
         )}
