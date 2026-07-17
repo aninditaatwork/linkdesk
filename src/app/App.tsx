@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react"
+import React, { useState, useEffect, useMemo } from "react"
 import { motion, AnimatePresence } from "motion/react"
 import { createClient } from "@supabase/supabase-js"
 import { Search, Plus, ExternalLink, Loader2, X, ArrowRight, ArrowLeft, Pencil, Check, Trash2, RefreshCw } from "lucide-react"
@@ -9,12 +9,28 @@ const EDGE_FN_URL = `${SUPABASE_URL}/functions/v1/characterize-links`
 const CLUSTER_FN_URL = `${SUPABASE_URL}/functions/v1/cluster-links`
 const SEARCH_FN_URL = `${SUPABASE_URL}/functions/v1/search-links`
 
+// Precomputed clip-path: large rectangle minus counter-clockwise circles (non-zero winding = holes)
+const PANEL_NOTCH_CLIP = (() => {
+  const r = 9, spacing = 40, W = 9999, count = 250
+  const parts = [`M 0 0 L ${W} 0 L ${W} ${count * spacing} L 0 ${count * spacing} Z`]
+  for (let i = 0; i < count; i++) {
+    const cy = spacing / 2 + i * spacing
+    parts.push(`M 0 ${cy - r} A ${r} ${r} 0 0 0 0 ${cy + r} A ${r} ${r} 0 0 0 0 ${cy - r} Z`)
+  }
+  return `path("${parts.join(" ")}")`
+})()
+
 const supabase = (globalThis as Record<string, unknown>).__supabase as ReturnType<typeof createClient> ||
   (() => {
     const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
     ;(globalThis as Record<string, unknown>).__supabase = client
     return client
   })()
+
+async function authHeader(): Promise<Record<string, string>> {
+  const { data } = await supabase.auth.getSession()
+  return { "Content-Type": "application/json", Authorization: `Bearer ${data.session?.access_token ?? SUPABASE_ANON_KEY}` }
+}
 
 interface SavedLink {
   id: string
@@ -274,7 +290,7 @@ function LinkDetailPanel({ link, categories, onClose, onSave, onDelete }: {
     try {
       const response = await fetch(EDGE_FN_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+        headers: await authHeader(),
         body: JSON.stringify({ links: [{ url: link.url, note: link.user_note }] }),
       })
       if (!response.ok) throw new Error("Failed")
@@ -299,17 +315,33 @@ function LinkDetailPanel({ link, categories, onClose, onSave, onDelete }: {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex"
+      className="fixed inset-0 z-50 flex bg-black/20"
     >
-      <div className="flex-1 bg-black/20" onClick={onClose} />
+      <div className="flex-1" onClick={onClose} />
       <motion.div
         initial={{ x: "100%" }}
         animate={{ x: 0 }}
         exit={{ x: "100%" }}
         transition={{ type: "spring", stiffness: 380, damping: 32 }}
-        className="w-full max-w-md flex flex-col overflow-y-auto"
-        style={{ background: "#FCF9F5", borderLeft: "2px solid #0F0D0A" }}
+        className="w-full max-w-md flex flex-col relative"
       >
+        {/* border SVG: sibling of the clipped panel, so it is NOT clipped — draws the full continuous notched stroke */}
+        <svg
+          style={{ position: "absolute", left: 0, top: 0, width: 14, height: "100%", pointerEvents: "none", zIndex: 20 }}
+        >
+          <defs>
+            <pattern id="notchBorder" x="0" y="0" width="14" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 1 0 L 1 11 A 9 9 0 0 1 1 29 L 1 40" fill="none" stroke="#0F0D0A" strokeWidth="2" />
+            </pattern>
+          </defs>
+          <rect width="14" height="100%" fill="url(#notchBorder)" />
+        </svg>
+
+        {/* panel: clip-path cuts everything inside to the notched shape — no child background can overpaint the holes */}
+        <div
+          className="flex flex-col overflow-y-auto flex-1"
+          style={{ background: "#FCF9F5", clipPath: PANEL_NOTCH_CLIP }}
+        >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 sticky top-0 z-10" style={{ background: "#FCF9F5", borderBottom: "2px solid #0F0D0A" }}>
           <a href={link.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs font-medium opacity-50 hover:opacity-100">
@@ -445,6 +477,7 @@ function LinkDetailPanel({ link, categories, onClose, onSave, onDelete }: {
             </p>
           </div>
         </div>
+        </div>
       </motion.div>
     </motion.div>
   )
@@ -492,7 +525,7 @@ function ImportView({ onImportDone, onCancel }: { onImportDone: () => void; onCa
         setProgress(Math.round((i / batches.length) * 80))
         const response = await fetch(EDGE_FN_URL, {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+          headers: await authHeader(),
           body: JSON.stringify({ links: batches[i] }),
         })
         if (!response.ok) { const err = await response.json(); throw new Error(err.error || `Batch ${i + 1} failed`) }
@@ -505,27 +538,6 @@ function ImportView({ onImportDone, onCancel }: { onImportDone: () => void; onCa
       const { error: dbError } = await supabase.from("links").insert(allResults)
       if (dbError) throw new Error(dbError.message)
       setImportedCount(allResults.length)
-
-      setProgress(90)
-      setStatus("Reorganising categories...")
-      const { data: allLinks } = await supabase.from("links").select("id, url, title, summary, tags, user_note")
-      if (allLinks && allLinks.length >= 5) {
-        try {
-          const clusterRes = await fetch(CLUSTER_FN_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
-            body: JSON.stringify({ links: allLinks }),
-          })
-          if (clusterRes.ok) {
-            const { assignments } = await clusterRes.json()
-            if (assignments?.length) {
-              await Promise.all(assignments.map((a: { id: string; category: string }) =>
-                supabase.from("links").update({ category: a.category }).eq("id", a.id)
-              ))
-            }
-          }
-        } catch (_) {}
-      }
 
       setProgress(100)
       setStep("done")
@@ -628,7 +640,7 @@ function ImportView({ onImportDone, onCancel }: { onImportDone: () => void; onCa
       </div>
       <p className="text-lg font-semibold mb-1" style={{ fontFamily: "'DM Serif Display', serif" }}>Done</p>
       <p className="text-sm text-muted-foreground mb-6">
-        {importedCount} saved{skippedCount > 0 && `, ${skippedCount} duplicate${skippedCount !== 1 ? "s" : ""} skipped`}. Categories reorganised.
+        {importedCount} saved{skippedCount > 0 && `, ${skippedCount} duplicate${skippedCount !== 1 ? "s" : ""} skipped`}.
       </p>
       <button onClick={onImportDone} className="px-5 py-2.5 rounded-sm text-sm font-semibold" style={{ background: "#0F0D0A", color: "#FFEADA", border: "2px solid #0F0D0A" }}>
         Back to desk
@@ -652,7 +664,7 @@ function SearchView({ links, onCardClick, onClose }: { links: SavedLink[]; onCar
       // Kick off semantic search fetch immediately
       const semanticPromise = fetch(SEARCH_FN_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+        headers: await authHeader(),
         body: JSON.stringify({ query: query.trim() }),
       })
 
@@ -834,7 +846,7 @@ function LandingView({ links, onCategoryClick, onRecluster, reclustering }: {
           className="flex items-center gap-1.5 text-xs opacity-40 hover:opacity-80 disabled:opacity-20 transition-opacity"
         >
           <RefreshCw size={11} className={reclustering ? "animate-spin" : ""} />
-          {reclustering ? "Reorganising..." : "Reorganise piles"}
+          {reclustering ? "Reorganising..." : "Reorganise categories"}
         </button>
       </div>
       <motion.div
@@ -861,9 +873,55 @@ function LandingView({ links, onCategoryClick, onRecluster, reclustering }: {
   )
 }
 
+// ─── Login View ────────────────────────────────────────────────────────────
+
+function LoginView() {
+  const [email, setEmail] = useState("")
+  const [sent, setSent] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  async function handleSend(e: React.FormEvent) {
+    e.preventDefault()
+    if (!email) return
+    setLoading(true)
+    await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin } })
+    setSent(true)
+    setLoading(false)
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: "#FFEADA", fontFamily: "'Space Grotesk', sans-serif" }}>
+      <div className="w-full max-w-sm px-8 py-10" style={{ background: "#FCF9F5", border: "2px solid #0F0D0A", boxShadow: "4px 4px 0 #0F0D0A" }}>
+        <p className="text-2xl font-semibold mb-1" style={{ fontFamily: "'DM Serif Display', serif" }}>linkdesk</p>
+        <p className="text-sm opacity-50 mb-8">Your personal link desk.</p>
+        {sent ? (
+          <p className="text-sm">Check your email — a magic link is on its way.</p>
+        ) : (
+          <form onSubmit={handleSend} className="flex flex-col gap-3">
+            <input
+              type="email" value={email} onChange={e => setEmail(e.target.value)}
+              placeholder="your@email.com" required
+              className="px-3 py-2.5 text-sm w-full outline-none"
+              style={{ border: "2px solid #0F0D0A", background: "#FFEADA", fontFamily: "'Space Grotesk', sans-serif" }}
+            />
+            <button type="submit" disabled={loading}
+              className="px-4 py-2.5 text-sm font-semibold"
+              style={{ background: "#0F0D0A", color: "#FFEADA", border: "2px solid #0F0D0A", boxShadow: "2px 2px 0 rgba(15,13,10,0.3)" }}
+            >
+              {loading ? "Sending..." : "Send magic link"}
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── App ───────────────────────────────────────────────────────────────────
 
 export default function App() {
+  const [session, setSession] = useState<unknown>(null)
+  const [authLoading, setAuthLoading] = useState(true)
   const [links, setLinks] = useState<SavedLink[]>([])
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<"desk" | "category" | "import">("desk")
@@ -880,6 +938,17 @@ export default function App() {
     setLoading(false)
   }
 
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session)
+      setAuthLoading(false)
+    })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session)
+    })
+    return () => subscription.unsubscribe()
+  }, [])
+
   useEffect(() => { fetchLinks() }, [])
 
   async function handleRecluster() {
@@ -889,7 +958,7 @@ export default function App() {
       const payload = links.map(l => ({ id: l.id, url: l.url, title: l.title, summary: l.summary, tags: l.tags, user_note: l.user_note }))
       const res = await fetch(CLUSTER_FN_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+        headers: await authHeader(),
         body: JSON.stringify({ links: payload }),
       })
       if (res.ok) {
@@ -914,6 +983,13 @@ export default function App() {
     if (!activeCategory) return []
     return links.filter(l => l.category === activeCategory)
   }, [links, activeCategory])
+
+  if (authLoading) return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: "#FFEADA" }}>
+      <Loader2 size={24} className="animate-spin opacity-30" />
+    </div>
+  )
+  if (!session) return <LoginView />
 
   return (
     <div className="min-h-screen flex flex-col" style={{ fontFamily: "'Space Grotesk', sans-serif", background: "#FFEADA" }}>
@@ -940,6 +1016,12 @@ export default function App() {
             style={{ background: "#0F0D0A", color: "#FFEADA", border: "2px solid #0F0D0A", boxShadow: "2px 2px 0 rgba(15,13,10,0.3)" }}
           >
             <Plus size={14} /> Add links
+          </button>
+          <button
+            onClick={() => supabase.auth.signOut()}
+            className="text-xs opacity-30 hover:opacity-60 transition-opacity px-2 py-2"
+          >
+            Sign out
           </button>
         </div>
       </header>
@@ -981,8 +1063,6 @@ export default function App() {
           <SearchView
             links={links}
             onCardClick={link => {
-              setShowSearch(false)
-              if (link.category) { setActiveCategory(link.category); setView("category") }
               setSelectedLink(link)
             }}
             onClose={() => setShowSearch(false)}
