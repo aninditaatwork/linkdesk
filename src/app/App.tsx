@@ -878,11 +878,16 @@ function LandingView({ links, onCategoryClick, onRecluster, reclustering }: {
 function LoginView() {
   const [email, setEmail] = useState("")
   const [sent, setSent] = useState(false)
+  const [denied, setDenied] = useState(false)
   const [loading, setLoading] = useState(false)
 
   async function handleSend(e: React.FormEvent) {
     e.preventDefault()
     if (!email) return
+    if (email !== import.meta.env.VITE_ALLOWED_EMAIL) {
+      setDenied(true)
+      return
+    }
     setLoading(true)
     await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin } })
     setSent(true)
@@ -896,6 +901,8 @@ function LoginView() {
         <p className="text-sm opacity-50 mb-8">Your personal link desk.</p>
         {sent ? (
           <p className="text-sm">Check your email — a magic link is on its way.</p>
+        ) : denied ? (
+          <p className="text-sm">You don't have access to this.</p>
         ) : (
           <form onSubmit={handleSend} className="flex flex-col gap-3">
             <input
