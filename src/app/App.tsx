@@ -10,6 +10,7 @@ const CLUSTER_FN_URL = `${SUPABASE_URL}/functions/v1/cluster-links`
 const SEARCH_FN_URL = `${SUPABASE_URL}/functions/v1/search-all`
 const CHARACTERIZE_VISUAL_URL = `${SUPABASE_URL}/functions/v1/characterize-visual`
 const CLUSTER_VISUALS_FN_URL = `${SUPABASE_URL}/functions/v1/cluster-visuals`
+const SAVE_THOUGHT_URL = `${SUPABASE_URL}/functions/v1/save-thought`
 
 // Precomputed clip-path: large rectangle minus counter-clockwise circles (non-zero winding = holes)
 const PANEL_NOTCH_CLIP = (() => {
@@ -38,6 +39,7 @@ interface SavedLink {
   id: string
   url: string
   title: string
+  slug: string
   description: string
   image_url: string
   user_note: string
@@ -60,6 +62,7 @@ interface SavedVisual {
   storage_path: string
   public_url: string
   title: string
+  slug: string
   description: string
   vibe: string[]
   tags: string[]
@@ -74,7 +77,16 @@ interface Moodboard {
   name: string
 }
 
-type SearchResultItem = (SavedLink & { type: "link" }) | (SavedVisual & { type: "visual" })
+interface SavedThought {
+  id: string
+  content: string
+  created_at: string
+}
+
+type SearchResultItem =
+  | (SavedLink & { type: "link" })
+  | (SavedVisual & { type: "visual" })
+  | (SavedThought & { type: "thought" })
 
 // Stack paper colors cycling per category
 const STACK_PALETTES = [
@@ -113,6 +125,141 @@ function extractUrls(text: string): string[] {
 function getCardRotation(seed: string): number {
   const h = seed.split("").reduce((a, c) => a + c.charCodeAt(0), 0)
   return ((h % 9) - 4) * 0.45
+}
+
+function getThoughtRotation(seed: string): number {
+  const h = seed.split("").reduce((a, c) => a + c.charCodeAt(0), 0)
+  return ((h % 21) - 10) / 20
+}
+
+// ─── Thought mention helpers ────────────────────────────────────────────────
+
+type MentionType = "tag" | "link" | "image" | "category"
+
+const MENTION_COLORS: Record<MentionType, string> = {
+  link: "#7B9E87",
+  image: "#7B9E87",
+  tag: "#C4A882",
+  category: "#C4A882",
+}
+
+function getMentionQueryAtCaret(root: HTMLElement): string | null {
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return null
+  const range = sel.getRangeAt(0)
+  if (!root.contains(range.startContainer)) return null
+  const node = range.startContainer
+  if (node.nodeType !== Node.TEXT_NODE) return null
+  const text = node.textContent || ""
+  const uptoCaret = text.slice(0, range.startOffset)
+  const match = uptoCaret.match(/@([a-zA-Z0-9_-]*)$/)
+  return match ? match[1] : null
+}
+
+function insertMention(root: HTMLElement, queryLen: number, type: MentionType, value: string, label: string) {
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0) return
+  const range = sel.getRangeAt(0)
+  const node = range.startContainer
+  if (node.nodeType !== Node.TEXT_NODE) return
+  const textNode = node as Text
+  const caretOffset = range.startOffset
+  const removeStart = Math.max(0, caretOffset - queryLen - 1)
+
+  const before = (textNode.textContent || "").slice(0, removeStart)
+  const after = (textNode.textContent || "").slice(caretOffset)
+  textNode.textContent = before
+
+  const span = document.createElement("span")
+  span.textContent = label
+  span.contentEditable = "false"
+  span.dataset.mentionType = type
+  span.dataset.mentionValue = value
+  span.style.fontStyle = "italic"
+  span.style.textDecoration = "underline"
+  span.style.textDecorationColor = MENTION_COLORS[type]
+  span.style.textUnderlineOffset = "2px"
+
+  const spaceNode = document.createTextNode(" " + after)
+
+  const parent = textNode.parentNode!
+  parent.insertBefore(span, textNode.nextSibling)
+  parent.insertBefore(spaceNode, span.nextSibling)
+
+  const newRange = document.createRange()
+  newRange.setStart(spaceNode, 1)
+  newRange.collapse(true)
+  sel.removeAllRanges()
+  sel.addRange(newRange)
+}
+
+function serializeThoughtContent(root: HTMLElement): string {
+  let out = ""
+  for (const node of Array.from(root.childNodes)) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      out += node.textContent || ""
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node as HTMLElement
+      if (el.dataset.mentionType && el.dataset.mentionValue) {
+        out += `[[${el.dataset.mentionType}:${el.dataset.mentionValue}]]`
+      } else if (el.tagName === "BR") {
+        out += "\n"
+      } else {
+        out += el.textContent || ""
+      }
+    }
+  }
+  return out
+}
+
+const MENTION_REGEX = /\[\[(tag|link|image|category):([^\]]+)\]\]/g
+
+function renderThoughtMentions(content: string, opts: {
+  links: SavedLink[]
+  visuals: SavedVisual[]
+  onLinkClick: (l: SavedLink) => void
+  onVisualClick: (v: SavedVisual) => void
+  onTagClick: (tag: string) => void
+  onCategoryClick: (category: string) => void
+}): React.ReactNode[] {
+  const parts: React.ReactNode[] = []
+  const regex = new RegExp(MENTION_REGEX.source, "g")
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+  let key = 0
+  while ((match = regex.exec(content)) !== null) {
+    if (match.index > lastIndex) parts.push(content.slice(lastIndex, match.index))
+    const type = match[1] as MentionType
+    const value = match[2]
+    const label = type === "tag" ? `#${value}` : value
+    const handleClick = (e: React.MouseEvent) => {
+      e.stopPropagation()
+      if (type === "link") {
+        const found = opts.links.find(l => l.slug === value)
+        if (found) opts.onLinkClick(found)
+      } else if (type === "image") {
+        const found = opts.visuals.find(v => v.slug === value)
+        if (found) opts.onVisualClick(found)
+      } else if (type === "tag") {
+        opts.onTagClick(value)
+      } else if (type === "category") {
+        opts.onCategoryClick(value)
+      }
+    }
+    parts.push(
+      <span
+        key={key++}
+        onClick={handleClick}
+        className="italic underline cursor-pointer"
+        style={{ textDecorationColor: MENTION_COLORS[type], textUnderlineOffset: "2px" }}
+      >
+        {label}
+      </span>
+    )
+    lastIndex = match.index + match[0].length
+  }
+  if (lastIndex < content.length) parts.push(content.slice(lastIndex))
+  return parts
 }
 
 // Resize on a canvas so the longest side is at most maxDim, returns a base64 data URL
@@ -350,6 +497,337 @@ function VisualUploadZone({ onUploaded }: { onUploaded: (visual: SavedVisual) =>
   )
 }
 
+// ─── Thought Page (torn notebook page shell) ───────────────────────────────
+
+function ThoughtPage({ children, rotation = 0, className = "" }: {
+  children: React.ReactNode
+  rotation?: number
+  className?: string
+}) {
+  return (
+    <div className={`thought-page ${className}`} style={{ transform: `rotate(${rotation}deg)` }}>
+      <div className="thought-page-lines" />
+      <div className="thought-page-margin" />
+      <div className="thought-page-holes">
+        <div className="thought-page-hole" />
+        <div className="thought-page-hole" />
+        <div className="thought-page-hole" />
+      </div>
+      <div className="thought-page-content">
+        {children}
+      </div>
+    </div>
+  )
+}
+
+// ─── Mention Dropdown ───────────────────────────────────────────────────────
+
+function MentionDropdown({ tags, linksList, visualsList, categories, onSelect }: {
+  tags: [string, number][]
+  linksList: SavedLink[]
+  visualsList: SavedVisual[]
+  categories: string[]
+  onSelect: (type: MentionType, value: string, label: string) => void
+}) {
+  const hasAny = tags.length > 0 || linksList.length > 0 || visualsList.length > 0 || categories.length > 0
+
+  return (
+    <div
+      className="absolute z-30 mt-1 w-full max-h-72 overflow-y-auto rounded-sm"
+      style={{ background: "#FFFFFF", border: "1.5px solid #0F0D0A", boxShadow: "3px 3px 0 #0F0D0A" }}
+    >
+      {!hasAny && <p className="text-xs text-muted-foreground px-3 py-3 opacity-50">No matches</p>}
+
+      {tags.length > 0 && (
+        <div className="py-1.5">
+          <p className="px-3 text-[10px] font-semibold uppercase tracking-widest opacity-40 mb-1">Tags</p>
+          {tags.map(([tag, count]) => (
+            <button
+              key={tag}
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => onSelect("tag", tag, `#${tag}`)}
+              className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent/40 flex items-center justify-between"
+            >
+              <span>#{tag}</span>
+              <span className="text-xs opacity-40">{count}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {linksList.length > 0 && (
+        <div className="py-1.5 border-t" style={{ borderColor: "rgba(15,13,10,0.1)" }}>
+          <p className="px-3 text-[10px] font-semibold uppercase tracking-widest opacity-40 mb-1">Links</p>
+          {linksList.map(l => (
+            <button
+              key={l.id}
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => onSelect("link", l.slug, l.slug)}
+              className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent/40 flex items-center justify-between gap-2"
+            >
+              <span className="truncate">{l.slug || l.title}</span>
+              <span className="text-xs opacity-40 shrink-0">{l.category}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {visualsList.length > 0 && (
+        <div className="py-1.5 border-t" style={{ borderColor: "rgba(15,13,10,0.1)" }}>
+          <p className="px-3 text-[10px] font-semibold uppercase tracking-widest opacity-40 mb-1">Images</p>
+          {visualsList.map(v => (
+            <button
+              key={v.id}
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => onSelect("image", v.slug, v.slug)}
+              className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent/40 flex items-center gap-2"
+            >
+              {v.public_url && <img src={v.public_url} alt="" className="w-5 h-5 rounded-sm object-cover shrink-0" />}
+              <span className="truncate">{v.slug || v.title}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {categories.length > 0 && (
+        <div className="py-1.5 border-t" style={{ borderColor: "rgba(15,13,10,0.1)" }}>
+          <p className="px-3 text-[10px] font-semibold uppercase tracking-widest opacity-40 mb-1">Categories</p>
+          {categories.map(c => (
+            <button
+              key={c}
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => onSelect("category", c, c)}
+              className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent/40"
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Thoughts Compose Box ───────────────────────────────────────────────────
+
+function ThoughtsComposeBox({ links, visuals, onSaved }: {
+  links: SavedLink[]
+  visuals: SavedVisual[]
+  onSaved: (thought: SavedThought) => void
+}) {
+  const composeRef = useRef<HTMLDivElement>(null)
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  const tagCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const l of links) {
+      for (const t of (Array.isArray(l.tags) ? l.tags : [])) counts[t] = (counts[t] || 0) + 1
+    }
+    for (const v of visuals) {
+      for (const t of (Array.isArray(v.tags) ? v.tags : [])) if (!(t in counts)) counts[t] = 0
+    }
+    return counts
+  }, [links, visuals])
+
+  const categories = useMemo(() => [...new Set([
+    ...links.map(l => l.category).filter(Boolean),
+    ...visuals.map(v => v.category).filter((c): c is string => Boolean(c)),
+  ])].sort(), [links, visuals])
+
+  function handleInput() {
+    if (!composeRef.current) return
+    setMentionQuery(getMentionQueryAtCaret(composeRef.current))
+  }
+
+  function handleSelect(type: MentionType, value: string, label: string) {
+    if (!composeRef.current || mentionQuery === null) return
+    insertMention(composeRef.current, mentionQuery.length, type, value, label)
+    setMentionQuery(null)
+    composeRef.current.focus()
+  }
+
+  async function handleSave() {
+    if (!composeRef.current || saving) return
+    const content = serializeThoughtContent(composeRef.current).trim()
+    if (!content) return
+    setSaving(true)
+    try {
+      const response = await fetch(SAVE_THOUGHT_URL, {
+        method: "POST",
+        headers: await authHeader(),
+        body: JSON.stringify({ content }),
+      })
+      if (!response.ok) throw new Error("Failed to save")
+      const { thought } = await response.json()
+      if (thought) {
+        onSaved(thought)
+        composeRef.current.innerHTML = ""
+        setMentionQuery(null)
+      }
+    } catch (_) { /* swallow — save button re-enables so the user can retry */ }
+    setSaving(false)
+  }
+
+  const q = (mentionQuery || "").toLowerCase()
+  const filteredTags = Object.entries(tagCounts).filter(([tag]) => tag.toLowerCase().includes(q)).slice(0, 6)
+  const filteredLinks = links.filter(l =>
+    [l.title, l.slug, l.vibe, ...(Array.isArray(l.tags) ? l.tags : [])].join(" ").toLowerCase().includes(q)
+  ).slice(0, 6)
+  const filteredVisuals = visuals.filter(v =>
+    [v.title, v.slug].join(" ").toLowerCase().includes(q)
+  ).slice(0, 6)
+  const filteredCategories = categories.filter(c => c.toLowerCase().includes(q)).slice(0, 6)
+
+  const firstMatch: { type: MentionType; value: string; label: string } | null =
+    filteredTags.length ? { type: "tag", value: filteredTags[0][0], label: `#${filteredTags[0][0]}` } :
+    filteredLinks.length ? { type: "link", value: filteredLinks[0].slug, label: filteredLinks[0].slug } :
+    filteredVisuals.length ? { type: "image", value: filteredVisuals[0].slug, label: filteredVisuals[0].slug } :
+    filteredCategories.length ? { type: "category", value: filteredCategories[0], label: filteredCategories[0] } :
+    null
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault()
+      handleSave()
+      return
+    }
+    if (mentionQuery !== null) {
+      if (e.key === "Escape") { e.preventDefault(); setMentionQuery(null); return }
+      if (e.key === "Enter") {
+        e.preventDefault()
+        if (firstMatch) handleSelect(firstMatch.type, firstMatch.value, firstMatch.label)
+        return
+      }
+    }
+    if (e.key === "Enter") {
+      e.preventDefault()
+      document.execCommand("insertText", false, "\n")
+    }
+  }
+
+  return (
+    <div className="relative mb-8">
+      <ThoughtPage rotation={0}>
+        <div
+          ref={composeRef}
+          contentEditable
+          suppressContentEditableWarning
+          data-placeholder="@ to mention · cmd+enter to save"
+          onInput={handleInput}
+          onKeyDown={handleKeyDown}
+          className="thought-editable outline-none"
+        />
+        <div className="flex justify-end mt-2">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-sm text-sm font-semibold disabled:opacity-40"
+            style={{ background: "#0F0D0A", color: "#FFEADA", border: "2px solid #0F0D0A", boxShadow: "2px 2px 0 rgba(15,13,10,0.3)" }}
+          >
+            {saving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Save
+          </button>
+        </div>
+      </ThoughtPage>
+      {mentionQuery !== null && (
+        <MentionDropdown
+          tags={filteredTags}
+          linksList={filteredLinks}
+          visualsList={filteredVisuals}
+          categories={filteredCategories}
+          onSelect={handleSelect}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── Thought Card ───────────────────────────────────────────────────────────
+
+function ThoughtCard({ thought, links, visuals, onLinkClick, onVisualClick, onTagClick, onCategoryClick }: {
+  thought: SavedThought
+  links: SavedLink[]
+  visuals: SavedVisual[]
+  onLinkClick: (l: SavedLink) => void
+  onVisualClick: (v: SavedVisual) => void
+  onTagClick: (tag: string) => void
+  onCategoryClick: (category: string) => void
+}) {
+  const rotation = getThoughtRotation(thought.id)
+  const rendered = useMemo(
+    () => renderThoughtMentions(thought.content, { links, visuals, onLinkClick, onVisualClick, onTagClick, onCategoryClick }),
+    [thought.content, links, visuals]
+  )
+
+  return (
+    <ThoughtPage rotation={rotation} className="mb-6">
+      <p className="whitespace-pre-wrap" style={{ margin: 0 }}>{rendered}</p>
+      <p className="text-xs opacity-40 mt-3" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+        {new Date(thought.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
+      </p>
+    </ThoughtPage>
+  )
+}
+
+// ─── Thought Snippet Card (for search results) ─────────────────────────────
+
+function ThoughtSnippetCard({ thought, onClick, index }: { thought: SavedThought; onClick: () => void; index: number }) {
+  const rotation = getThoughtRotation(thought.id)
+  const snippet = thought.content.length > 120 ? thought.content.slice(0, 120) + "…" : thought.content
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 24 }}
+      animate={{ opacity: 1, y: 0, transition: { delay: index * 0.03, type: "spring", stiffness: 300, damping: 24 } }}
+      exit={{ opacity: 0, scale: 0.9 }}
+      onClick={onClick}
+      className="cursor-pointer break-inside-avoid mb-4 inline-block w-full"
+    >
+      <ThoughtPage rotation={rotation}>
+        <p style={{ margin: 0 }}>{snippet}</p>
+        <p className="text-xs opacity-40 mt-2" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+          {new Date(thought.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
+        </p>
+      </ThoughtPage>
+    </motion.div>
+  )
+}
+
+// ─── Thoughts View ──────────────────────────────────────────────────────────
+
+function ThoughtsView({ thoughts, links, visuals, onSaved, onLinkClick, onVisualClick, onTagClick, onCategoryClick }: {
+  thoughts: SavedThought[]
+  links: SavedLink[]
+  visuals: SavedVisual[]
+  onSaved: (thought: SavedThought) => void
+  onLinkClick: (l: SavedLink) => void
+  onVisualClick: (v: SavedVisual) => void
+  onTagClick: (tag: string) => void
+  onCategoryClick: (category: string) => void
+}) {
+  return (
+    <div className="flex-1 overflow-y-auto px-8 py-8">
+      <ThoughtsComposeBox links={links} visuals={visuals} onSaved={onSaved} />
+      {thoughts.map(t => (
+        <ThoughtCard
+          key={t.id}
+          thought={t}
+          links={links}
+          visuals={visuals}
+          onLinkClick={onLinkClick}
+          onVisualClick={onVisualClick}
+          onTagClick={onTagClick}
+          onCategoryClick={onCategoryClick}
+        />
+      ))}
+      {!thoughts.length && (
+        <p className="text-sm text-muted-foreground opacity-50 text-center py-12">No thoughts yet — jot something down above.</p>
+      )}
+    </div>
+  )
+}
+
 // ─── Category Stack ────────────────────────────────────────────────────────
 
 function CategoryStack({ category, links, paletteIndex, onClick }: {
@@ -479,7 +957,7 @@ function LinkDetailPanel({ link, categories, onClose, onSave, onDelete }: {
       const { results } = await response.json()
       if (results?.[0]) {
         const r = results[0]
-        await supabase.from("links").update({ title: r.title || draft.title, summary: r.summary, category: r.category, vibe: r.vibe, tags: r.tags, image_url: r.image_url || draft.image_url }).eq("id", link.id)
+        await supabase.from("links").update({ title: r.title || draft.title, slug: r.slug, summary: r.summary, category: r.category, vibe: r.vibe, tags: r.tags, image_url: r.image_url || draft.image_url }).eq("id", link.id)
         const updated = { ...draft, ...r, title: r.title || draft.title, image_url: r.image_url || draft.image_url }
         setDraft(updated)
         setTagsInput(Array.isArray(r.tags) ? r.tags.join(", ") : "")
@@ -957,14 +1435,17 @@ function ImportView({ onImportDone, onCancel }: { onImportDone: () => void; onCa
 
 // ─── Search View ───────────────────────────────────────────────────────────
 
-function SearchView({ links, visuals, onLinkClick, onVisualClick, onClose }: {
+function SearchView({ links, visuals, thoughts, initialQuery, onLinkClick, onVisualClick, onThoughtClick, onClose }: {
   links: SavedLink[]
   visuals: SavedVisual[]
+  thoughts: SavedThought[]
+  initialQuery?: string
   onLinkClick: (l: SavedLink) => void
   onVisualClick: (v: SavedVisual) => void
+  onThoughtClick: (t: SavedThought) => void
   onClose: () => void
 }) {
-  const [query, setQuery] = useState("")
+  const [query, setQuery] = useState(initialQuery || "")
   const [results, setResults] = useState<SearchResultItem[]>([])
   const [searching, setSearching] = useState(false)
 
@@ -999,7 +1480,11 @@ function SearchView({ links, visuals, onLinkClick, onVisualClick, onClose }: {
         ].join(" ").toLowerCase()
         return words.every(word => haystack.includes(word))
       }).map(v => ({ ...v, type: "visual" as const }))
-      const keywordResults: SearchResultItem[] = [...keywordLinks, ...keywordVisuals]
+      const keywordThoughts: SearchResultItem[] = thoughts.filter(t => {
+        const haystack = t.content.toLowerCase()
+        return words.every(word => haystack.includes(word))
+      }).map(t => ({ ...t, type: "thought" as const }))
+      const keywordResults: SearchResultItem[] = [...keywordLinks, ...keywordVisuals, ...keywordThoughts]
 
       try {
         const res = await semanticPromise
@@ -1019,7 +1504,7 @@ function SearchView({ links, visuals, onLinkClick, onVisualClick, onClose }: {
       }
     }, 500)
     return () => clearTimeout(timer)
-  }, [query, links, visuals])
+  }, [query, links, visuals, thoughts])
 
   return (
     <motion.div
@@ -1069,6 +1554,8 @@ function SearchView({ links, visuals, onLinkClick, onVisualClick, onClose }: {
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 max-w-6xl mx-auto items-start">
               {results.map((item, i) => item.type === "visual" ? (
                 <VisualCard key={item.id} visual={item} onClick={() => onVisualClick(item)} index={i} />
+              ) : item.type === "thought" ? (
+                <ThoughtSnippetCard key={item.id} thought={item} onClick={() => onThoughtClick(item)} index={i} />
               ) : (
                 <PaperCard key={item.id} link={item} onClick={() => onLinkClick(item)} index={i} />
               ))}
@@ -1447,7 +1934,7 @@ export default function App() {
   const [showSearch, setShowSearch] = useState(false)
   const [reclustering, setReclustering] = useState(false)
 
-  const [board, setBoard] = useState<"desk" | "visual">("desk")
+  const [board, setBoard] = useState<"desk" | "visual" | "thoughts">("desk")
   const [visuals, setVisuals] = useState<SavedVisual[]>([])
   const [visualsLoading, setVisualsLoading] = useState(true)
   const [moodboards, setMoodboards] = useState<Moodboard[]>([])
@@ -1455,6 +1942,10 @@ export default function App() {
   const [activeVisualCategory, setActiveVisualCategory] = useState<string | null>(null)
   const [selectedVisual, setSelectedVisual] = useState<SavedVisual | null>(null)
   const [visualReclustering, setVisualReclustering] = useState(false)
+
+  const [thoughts, setThoughts] = useState<SavedThought[]>([])
+  const [thoughtsLoading, setThoughtsLoading] = useState(true)
+  const [searchInitialQuery, setSearchInitialQuery] = useState("")
 
   const categories = useMemo(() => [...new Set(links.map(l => l.category).filter(Boolean))].sort(), [links])
 
@@ -1475,6 +1966,12 @@ export default function App() {
     if (!error && data) setMoodboards(data)
   }
 
+  async function fetchThoughts() {
+    const { data, error } = await supabase.from("thoughts").select("id, content, created_at").order("created_at", { ascending: false })
+    if (!error && data) setThoughts(data)
+    setThoughtsLoading(false)
+  }
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
@@ -1488,9 +1985,19 @@ export default function App() {
 
   useEffect(() => { fetchLinks() }, [])
   useEffect(() => { fetchVisuals(); fetchMoodboards() }, [])
+  useEffect(() => { fetchThoughts() }, [])
 
   function handleVisualUploaded(visual: SavedVisual) {
     setVisuals(prev => [visual, ...prev])
+  }
+
+  function handleThoughtSaved(thought: SavedThought) {
+    setThoughts(prev => [thought, ...prev])
+  }
+
+  function openSearchWithQuery(q: string) {
+    setSearchInitialQuery(q)
+    setShowSearch(true)
   }
 
   async function handleRecluster() {
@@ -1574,11 +2081,18 @@ export default function App() {
             >
               Visual Board
             </button>
+            <button
+              onClick={() => setBoard("thoughts")}
+              className="px-3 py-1.5 rounded-sm text-sm font-medium transition-colors"
+              style={board === "thoughts" ? { background: "#0F0D0A", color: "#FFEADA" } : { color: "#6B5B4A" }}
+            >
+              Thoughts
+            </button>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setShowSearch(true)}
+            onClick={() => { setSearchInitialQuery(""); setShowSearch(true) }}
             className="flex items-center gap-1.5 px-4 py-2 rounded-sm text-sm font-medium"
             style={{ border: "1.5px solid rgba(15,13,10,0.25)", background: "transparent" }}
           >
@@ -1623,6 +2137,23 @@ export default function App() {
               reclustering={visualReclustering}
             />
           )
+        ) : board === "thoughts" ? (
+          thoughtsLoading ? (
+            <div className="flex-1 flex items-center justify-center">
+              <Loader2 size={24} className="animate-spin opacity-30" />
+            </div>
+          ) : (
+            <ThoughtsView
+              thoughts={thoughts}
+              links={links}
+              visuals={visuals}
+              onSaved={handleThoughtSaved}
+              onLinkClick={link => setSelectedLink(link)}
+              onVisualClick={visual => setSelectedVisual(visual)}
+              onTagClick={tag => openSearchWithQuery(tag)}
+              onCategoryClick={cat => openSearchWithQuery(cat)}
+            />
+          )
         ) : loading ? (
           <div className="flex-1 flex items-center justify-center">
             <Loader2 size={24} className="animate-spin opacity-30" />
@@ -1658,8 +2189,11 @@ export default function App() {
           <SearchView
             links={links}
             visuals={visuals}
+            thoughts={thoughts}
+            initialQuery={searchInitialQuery}
             onLinkClick={link => setSelectedLink(link)}
             onVisualClick={visual => setSelectedVisual(visual)}
+            onThoughtClick={() => { setShowSearch(false); setBoard("thoughts") }}
             onClose={() => setShowSearch(false)}
           />
         )}

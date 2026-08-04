@@ -33,6 +33,17 @@ function isTwitter(url: string) {
   return url.includes("x.com") || url.includes("twitter.com")
 }
 
+function slugify(input: string, maxWords = 5): string {
+  return (input || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, maxWords)
+    .join("-")
+}
+
 function detectPlatform(url: string) {
   const u = url.toLowerCase()
   if (u.includes("x.com") || u.includes("twitter.com")) return "twitter"
@@ -165,7 +176,7 @@ serve(async (req) => {
           max_tokens: 500,
           messages: [{
             role: "user",
-            content: `You are helping a designer organise their saved links. Return ONLY valid JSON with no markdown formatting, no code fences, no backticks — just the raw JSON object.\n\n${ctxLines}\n\n${CATEGORY_PROMPT}\n\nReturn exactly:\n{"summary":"2-3 sentences describing what this is and why a designer might save it","category":"one category from the list","vibe":"3-5 comma-separated mood or aesthetic words like: minimal, dark, editorial, brutalist, typographic, experimental, playful, clean, technical, bold","tags":["5","to","8","searchable","keyword","tags"]}`,
+            content: `You are helping a designer organise their saved links. Return ONLY valid JSON with no markdown formatting, no code fences, no backticks — just the raw JSON object.\n\n${ctxLines}\n\n${CATEGORY_PROMPT}\n\nGenerate a meaningful, descriptive title that says what this content actually IS — never the raw page title, the author's name, or the platform. The "Title" signal above (if present) is often just an account name or generic page title; look past it to what the content is actually about, using the note, description, and URL as context. For example, if the raw title is "Tom Parkes on X" but the post is sharing an animated icon set for supply chains, the title should be something like "On Grid Lil — Animated Supply Chain Icon Set".\n\nThen generate a slug from that title: lowercase, hyphens instead of spaces, no special characters, at most 5 words, keeping only the most essential words. Example: "On Grid Lil — Animated Supply Chain Icon Set" → "on-grid-lil-icon-set".\n\nReturn exactly:\n{"title":"the descriptive, content-based title","slug":"the-slug-from-that-title","summary":"2-3 sentences describing what this is and why a designer might save it","category":"one category from the list","vibe":"3-5 comma-separated mood or aesthetic words like: minimal, dark, editorial, brutalist, typographic, experimental, playful, clean, technical, bold","tags":["5","to","8","searchable","keyword","tags"]}`,
           }],
         }),
       })
@@ -173,7 +184,7 @@ serve(async (req) => {
       const aiData = await aiResponse.json()
       console.log("Anthropic response:", JSON.stringify(aiData).slice(0, 500))
 
-      let ai = { summary: "", category: "Other", vibe: "", tags: [] as string[] }
+      let ai = { title: "", slug: "", summary: "", category: "Other", vibe: "", tags: [] as string[] }
       try {
         const raw = aiData.content[0].text
         const jsonMatch = raw.match(/\{[\s\S]*\}/)
@@ -185,8 +196,11 @@ serve(async (req) => {
         ai.summary = aiData.content?.[0]?.text || "Could not characterise"
       }
 
+      const title = ai.title || og.title
+      const slug = slugify(ai.slug || ai.title || og.title || link.url)
+
       const embeddingText = [
-        og.title,
+        title,
         ai.summary,
         ai.vibe,
         Array.isArray(ai.tags) ? ai.tags.join(", ") : "",
@@ -197,7 +211,8 @@ serve(async (req) => {
         result: {
           url: link.url,
           user_note: link.note || "",
-          title: og.title,
+          title,
+          slug,
           description: og.description,
           image_url: og.image,
           platform,

@@ -10,7 +10,7 @@ const corsHeaders = {
 
 type SearchResult = Record<string, unknown> & { id: string; similarity?: number }
 
-function tagResults(results: SearchResult[] | null, type: "link" | "visual"): SearchResult[] {
+function tagResults(results: SearchResult[] | null, type: "link" | "visual" | "thought"): SearchResult[] {
   return (results ?? []).map((r) => ({ ...r, type }))
 }
 
@@ -48,26 +48,30 @@ Deno.serve(async (req: Request) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     )
 
-    const [linksBySimilarity, visualsBySimilarity, linksByKeyword, visualsByKeyword] = await Promise.all([
+    const [linksBySimilarity, visualsBySimilarity, thoughtsBySimilarity, linksByKeyword, visualsByKeyword, thoughtsByKeyword] = await Promise.all([
       supabase.rpc("search_links_by_embedding", { query_embedding: queryEmbedding, match_threshold, match_count }),
       supabase.rpc("search_visuals_by_embedding", { query_embedding: queryEmbedding, match_threshold, match_count }),
+      supabase.rpc("search_thoughts_by_embedding", { query_embedding: queryEmbedding, match_threshold, match_count }),
       supabase.rpc("search_links_by_keyword", { query: trimmedQuery, match_count }),
       supabase.rpc("search_visuals_by_keyword", { query: trimmedQuery, match_count }),
+      supabase.rpc("search_thoughts_by_keyword", { query: trimmedQuery, match_count }),
     ])
 
-    for (const { error } of [linksBySimilarity, visualsBySimilarity, linksByKeyword, visualsByKeyword]) {
+    for (const { error } of [linksBySimilarity, visualsBySimilarity, thoughtsBySimilarity, linksByKeyword, visualsByKeyword, thoughtsByKeyword]) {
       if (error) throw error
     }
 
-    // Semantic hits are ranked highest, sorted by similarity across both tables
+    // Semantic hits are ranked highest, sorted by similarity across all three tables
     const semanticHits = [
       ...tagResults(linksBySimilarity.data, "link"),
       ...tagResults(visualsBySimilarity.data, "visual"),
+      ...tagResults(thoughtsBySimilarity.data, "thought"),
     ].sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0))
 
     const keywordHits = [
       ...tagResults(linksByKeyword.data, "link"),
       ...tagResults(visualsByKeyword.data, "visual"),
+      ...tagResults(thoughtsByKeyword.data, "thought"),
     ]
 
     const seen = new Set(semanticHits.map((r) => r.id))

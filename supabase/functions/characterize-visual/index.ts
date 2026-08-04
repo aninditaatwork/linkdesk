@@ -26,6 +26,17 @@ function parseBase64Image(image: string, filename: string): { mediaType: string;
   return { mediaType: EXT_TO_MEDIA_TYPE[ext] || "image/png", base64Data: image }
 }
 
+function slugify(input: string, maxWords = 5): string {
+  return (input || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, maxWords)
+    .join("-")
+}
+
 function base64ToBytes(base64: string): Uint8Array {
   const binary = atob(base64)
   const bytes = new Uint8Array(binary.length)
@@ -40,8 +51,10 @@ Filename (context only, do not rely on it): ${filename}
 
 Return ONLY valid JSON with no markdown formatting, no code fences, no backticks — just the raw JSON object.
 
+Also generate a slug from that title: lowercase, hyphens instead of spaces, no special characters, at most 5 words, keeping only the most essential words.
+
 Return exactly:
-{"title":"a short, descriptive title for what the image actually shows, not the filename","description":"2-3 sentences describing what you see: subject, composition, colors, style","vibe":["3","to","6","mood","or","aesthetic","words","like","minimal","dark","editorial","brutalist","warm","nostalgic","futuristic"],"tags":["5","to","10","searchable","keyword","tags","describing","subject","style","and","content"]}`
+{"title":"a short, descriptive title for what the image actually shows, not the filename","slug":"the-slug-from-that-title","description":"2-3 sentences describing what you see: subject, composition, colors, style","vibe":["3","to","6","mood","or","aesthetic","words","like","minimal","dark","editorial","brutalist","warm","nostalgic","futuristic"],"tags":["5","to","10","searchable","keyword","tags","describing","subject","style","and","content"]}`
 }
 
 async function generateEmbedding(text: string): Promise<number[] | null> {
@@ -125,7 +138,7 @@ Deno.serve(async (req: Request) => {
     const aiData = await aiResponse.json()
     console.log("Anthropic response:", JSON.stringify(aiData).slice(0, 500))
 
-    let ai = { title: "", description: "", vibe: [] as string[], tags: [] as string[] }
+    let ai = { title: "", slug: "", description: "", vibe: [] as string[], tags: [] as string[] }
     try {
       const raw = aiData.content[0].text
       const jsonMatch = raw.match(/\{[\s\S]*\}/)
@@ -141,12 +154,16 @@ Deno.serve(async (req: Request) => {
       .join(" | ")
     const embedding = await generateEmbedding(embeddingText)
 
+    const title = ai.title || filename
+    const slug = slugify(ai.slug || ai.title || filename)
+
     const { data: visual, error: insertError } = await supabase
       .from("visuals")
       .insert({
         storage_path: storagePath,
         public_url: publicUrl,
-        title: ai.title || filename,
+        title,
+        slug,
         description: ai.description || "",
         vibe: ai.vibe || [],
         tags: ai.tags || [],
