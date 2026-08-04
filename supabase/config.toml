@@ -1,0 +1,5 @@
+
+[functions.characterize-visual]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/characterize-visual/index.ts"
