@@ -2,6 +2,37 @@ import React, { useState, useEffect, useMemo, useRef } from "react"
 import { motion, AnimatePresence } from "motion/react"
 import { createClient } from "@supabase/supabase-js"
 import { Search, Plus, ExternalLink, Loader2, X, ArrowRight, ArrowLeft, Pencil, Check, Trash2, RefreshCw, Upload } from "lucide-react"
+import "./folderTabs.css"
+
+// ─── Folder tab strip — copied from src/assets/tabs_ui.html (drawStrip) ────
+const TAB_COLORS: Record<"links" | "images" | "thoughts", string> = { links: "#FF7D4E", images: "#54B5DF", thoughts: "#96C434" }
+
+function drawStrip(activeId: string) {
+  const activeTab = document.getElementById("tab-" + activeId)
+  const wrap = document.getElementById("strip-wrap")
+  const svg = document.getElementById("strip-svg")
+  if (!activeTab || !wrap || !svg) return
+  const color = TAB_COLORS[activeId as "links" | "images" | "thoughts"]
+
+  const wrapRect = wrap.getBoundingClientRect()
+  const tabRect = activeTab.getBoundingClientRect()
+  const W = Math.round(wrapRect.width)
+  const H = 12
+  const SW = 2.5
+
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`)
+
+  const gapL = Math.max(0, tabRect.left - wrapRect.left)
+  const gapR = Math.min(W, tabRect.right - wrapRect.left)
+
+  svg.innerHTML = `
+    <rect x="0" y="0" width="${W}" height="${H}" fill="${color}"/>
+    <line x1="0"       y1="${SW / 2}" x2="${gapL}" y2="${SW / 2}" stroke="#1A1008" stroke-width="${SW}"/>
+    <line x1="${gapR}" y1="${SW / 2}" x2="${W}"     y2="${SW / 2}" stroke="#1A1008" stroke-width="${SW}"/>
+    <line x1="${SW / 2}" y1="0"       x2="${SW / 2}"  y2="${H}"    stroke="#1A1008" stroke-width="${SW}"/>
+    <line x1="${W - SW / 2}" y1="0"     x2="${W - SW / 2}" y2="${H}"   stroke="#1A1008" stroke-width="${SW}"/>
+  `
+}
 
 const SUPABASE_URL = "https://sobwdyjbgecipxhvhrtu.supabase.co"
 const SUPABASE_ANON_KEY = "sb_publishable_5_Y3NIGFNQK-zyyE_DVKcA_tpclZ9g8"
@@ -1941,7 +1972,7 @@ export default function App() {
   const [showSearch, setShowSearch] = useState(false)
   const [reclustering, setReclustering] = useState(false)
 
-  const [board, setBoard] = useState<"desk" | "visual" | "thoughts">("desk")
+  const [board, setBoard] = useState<"links" | "images" | "thoughts">("links")
   const [visuals, setVisuals] = useState<SavedVisual[]>([])
   const [visualsLoading, setVisualsLoading] = useState(true)
   const [moodboards, setMoodboards] = useState<Moodboard[]>([])
@@ -1993,6 +2024,17 @@ export default function App() {
   useEffect(() => { fetchLinks() }, [])
   useEffect(() => { fetchVisuals(); fetchMoodboards() }, [])
   useEffect(() => { fetchThoughts() }, [])
+
+  // Draw the folder tab strip — on mount, whenever the active tab changes, and on resize
+  useEffect(() => {
+    requestAnimationFrame(() => drawStrip(board))
+  }, [board])
+
+  useEffect(() => {
+    const onResize = () => drawStrip(board)
+    window.addEventListener("resize", onResize)
+    return () => window.removeEventListener("resize", onResize)
+  }, [board])
 
   function handleVisualUploaded(visual: SavedVisual) {
     setVisuals(prev => [visual, ...prev])
@@ -2062,133 +2104,126 @@ export default function App() {
   if (!session) return <LoginView />
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ fontFamily: "'Space Grotesk', sans-serif", background: "#FFEADA" }}>
-      {/* Header */}
-      <header className="px-8 py-5 flex items-center justify-between shrink-0" style={{ borderBottom: "2px solid rgba(15,13,10,0.12)" }}>
-        <div className="flex items-center gap-5">
+    <div style={{ width: "100%", height: "100vh", fontFamily: "Georgia, serif", background: "#FFDEB3", display: "flex", flexDirection: "column", padding: 20, boxSizing: "border-box", overflow: "hidden" }}>
+    <div className="folder" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+
+      {/* CSS tabs — fixed size, fixed gap, fixed radius */}
+      <div className="tab-row" id="tab-row">
+        <div id="tab-links" onClick={() => setBoard("links")} className={board === "links" ? "tab active" : "tab inactive"} style={{ background: "#FF7D4E" }}>Links</div>
+        <div id="tab-images" onClick={() => setBoard("images")} className={board === "images" ? "tab active" : "tab inactive"} style={{ background: "#54B5DF" }}>Images</div>
+        <div id="tab-thoughts" onClick={() => setBoard("thoughts")} className={board === "thoughts" ? "tab active" : "tab inactive"} style={{ background: "#96C434" }}>Thoughts</div>
+      </div>
+
+      {/* SVG strip — only this stretches, gap measured from CSS tabs above */}
+      <div className="strip-wrap" id="strip-wrap">
+        <svg id="strip-svg" style={{ display: "block", width: "100%", height: 12 }} />
+      </div>
+
+      {/* Folder body */}
+      <div className="folder-body">
+        {/* Header */}
+        <header className="px-8 py-5 flex items-center justify-between shrink-0" style={{ borderBottom: "2px solid rgba(15,13,10,0.12)" }}>
           <button
-            onClick={() => { setBoard("desk"); setView("desk"); setActiveCategory(null) }}
+            onClick={() => { setBoard("links"); setView("desk"); setActiveCategory(null) }}
             className="text-xl font-semibold tracking-tight"
             style={{ fontFamily: "'DM Serif Display', serif" }}
           >
             linkdesk
           </button>
-          <div className="flex items-center gap-1 rounded-sm p-1" style={{ border: "1.5px solid rgba(15,13,10,0.2)" }}>
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setBoard("desk")}
-              className="px-3 py-1.5 rounded-sm text-sm font-medium transition-colors"
-              style={board === "desk" ? { background: "#0F0D0A", color: "#FFEADA" } : { color: "#6B5B4A" }}
+              onClick={() => { setSearchInitialQuery(""); setShowSearch(true) }}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-sm text-sm font-medium"
+              style={{ border: "1.5px solid rgba(15,13,10,0.25)", background: "transparent" }}
             >
-              Desk
+              <Search size={14} className="opacity-60" /> Search
             </button>
+            {board === "links" && (
+              <button
+                onClick={() => setView("import")}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-sm text-sm font-semibold"
+                style={{ background: "#0F0D0A", color: "#FFEADA", border: "2px solid #0F0D0A", boxShadow: "2px 2px 0 rgba(15,13,10,0.3)" }}
+              >
+                <Plus size={14} /> Add links
+              </button>
+            )}
             <button
-              onClick={() => setBoard("visual")}
-              className="px-3 py-1.5 rounded-sm text-sm font-medium transition-colors"
-              style={board === "visual" ? { background: "#0F0D0A", color: "#FFEADA" } : { color: "#6B5B4A" }}
+              onClick={() => supabase.auth.signOut()}
+              className="text-xs opacity-30 hover:opacity-60 transition-opacity px-2 py-2"
             >
-              Visual Board
-            </button>
-            <button
-              onClick={() => setBoard("thoughts")}
-              className="px-3 py-1.5 rounded-sm text-sm font-medium transition-colors"
-              style={board === "thoughts" ? { background: "#0F0D0A", color: "#FFEADA" } : { color: "#6B5B4A" }}
-            >
-              Thoughts
+              Sign out
             </button>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => { setSearchInitialQuery(""); setShowSearch(true) }}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-sm text-sm font-medium"
-            style={{ border: "1.5px solid rgba(15,13,10,0.25)", background: "transparent" }}
-          >
-            <Search size={14} className="opacity-60" /> Search
-          </button>
-          {board === "desk" && (
-            <button
-              onClick={() => setView("import")}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-sm text-sm font-semibold"
-              style={{ background: "#0F0D0A", color: "#FFEADA", border: "2px solid #0F0D0A", boxShadow: "2px 2px 0 rgba(15,13,10,0.3)" }}
-            >
-              <Plus size={14} /> Add links
-            </button>
-          )}
-          <button
-            onClick={() => supabase.auth.signOut()}
-            className="text-xs opacity-30 hover:opacity-60 transition-opacity px-2 py-2"
-          >
-            Sign out
-          </button>
-        </div>
-      </header>
+        </header>
 
-      {/* Main */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {board === "visual" ? (
-          visualsLoading ? (
+        {/* Main */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {board === "images" ? (
+            visualsLoading ? (
+              <div className="flex-1 flex items-center justify-center">
+                <Loader2 size={24} className="animate-spin opacity-30" />
+              </div>
+            ) : (
+              <VisualBoardView
+                visuals={visuals}
+                onCardClick={visual => setSelectedVisual(visual)}
+                onUploaded={handleVisualUploaded}
+                visualView={visualView}
+                onSetVisualView={setVisualView}
+                activeVisualCategory={activeVisualCategory}
+                onCategoryClick={cat => { setActiveVisualCategory(cat); setVisualView("categoryDetail") }}
+                onBackFromCategory={() => { setVisualView("categories"); setActiveVisualCategory(null) }}
+                onRecluster={handleReclusterVisuals}
+                reclustering={visualReclustering}
+              />
+            )
+          ) : board === "thoughts" ? (
+            thoughtsLoading ? (
+              <div className="flex-1 flex items-center justify-center">
+                <Loader2 size={24} className="animate-spin opacity-30" />
+              </div>
+            ) : (
+              <ThoughtsView
+                thoughts={thoughts}
+                links={links}
+                visuals={visuals}
+                onSaved={handleThoughtSaved}
+                onLinkClick={link => setSelectedLink(link)}
+                onVisualClick={visual => setSelectedVisual(visual)}
+                onTagClick={tag => openSearchWithQuery(tag)}
+                onCategoryClick={cat => openSearchWithQuery(cat)}
+              />
+            )
+          ) : loading ? (
             <div className="flex-1 flex items-center justify-center">
               <Loader2 size={24} className="animate-spin opacity-30" />
             </div>
-          ) : (
-            <VisualBoardView
-              visuals={visuals}
-              onCardClick={visual => setSelectedVisual(visual)}
-              onUploaded={handleVisualUploaded}
-              visualView={visualView}
-              onSetVisualView={setVisualView}
-              activeVisualCategory={activeVisualCategory}
-              onCategoryClick={cat => { setActiveVisualCategory(cat); setVisualView("categoryDetail") }}
-              onBackFromCategory={() => { setVisualView("categories"); setActiveVisualCategory(null) }}
-              onRecluster={handleReclusterVisuals}
-              reclustering={visualReclustering}
+          ) : view === "import" ? (
+            <div className="flex-1 overflow-y-auto">
+              <ImportView onImportDone={handleImportDone} onCancel={() => setView("desk")} />
+            </div>
+          ) : view === "category" && activeCategory ? (
+            <CategoryView
+              category={activeCategory}
+              links={categoryLinks}
+              onBack={() => { setView("desk"); setActiveCategory(null) }}
+              onCardClick={link => {
+                setActiveCategory(link.category)
+                setView("category")
+                setSelectedLink(link)
+              }}
             />
-          )
-        ) : board === "thoughts" ? (
-          thoughtsLoading ? (
-            <div className="flex-1 flex items-center justify-center">
-              <Loader2 size={24} className="animate-spin opacity-30" />
-            </div>
           ) : (
-            <ThoughtsView
-              thoughts={thoughts}
+            <LandingView
               links={links}
-              visuals={visuals}
-              onSaved={handleThoughtSaved}
-              onLinkClick={link => setSelectedLink(link)}
-              onVisualClick={visual => setSelectedVisual(visual)}
-              onTagClick={tag => openSearchWithQuery(tag)}
-              onCategoryClick={cat => openSearchWithQuery(cat)}
+              onCategoryClick={cat => { setActiveCategory(cat); setView("category") }}
+              onRecluster={handleRecluster}
+              reclustering={reclustering}
             />
-          )
-        ) : loading ? (
-          <div className="flex-1 flex items-center justify-center">
-            <Loader2 size={24} className="animate-spin opacity-30" />
-          </div>
-        ) : view === "import" ? (
-          <div className="flex-1 overflow-y-auto">
-            <ImportView onImportDone={handleImportDone} onCancel={() => setView("desk")} />
-          </div>
-        ) : view === "category" && activeCategory ? (
-          <CategoryView
-            category={activeCategory}
-            links={categoryLinks}
-            onBack={() => { setView("desk"); setActiveCategory(null) }}
-            onCardClick={link => {
-              setActiveCategory(link.category)
-              setView("category")
-              setSelectedLink(link)
-            }}
-          />
-        ) : (
-          <LandingView
-            links={links}
-            onCategoryClick={cat => { setActiveCategory(cat); setView("category") }}
-            onRecluster={handleRecluster}
-            reclustering={reclustering}
-          />
-        )}
+          )}
+        </div>
       </div>
+    </div>
 
       {/* Search overlay */}
       <AnimatePresence>

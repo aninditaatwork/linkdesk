@@ -1,0 +1,71 @@
+/* Copied verbatim from src/assets/tabs_ui.html — tab-row, tab, strip-wrap, folder-body */
+
+.tab-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding-left: 16px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+}
+
+.tab {
+  padding: 0 16px;
+  height: 38px;
+  min-width: 0;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1A1008;
+  cursor: pointer;
+  border: 2.5px solid #1A1008;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
+  user-select: none;
+}
+
+.tab.active {
+  z-index: 10;
+  margin-bottom: -2.5px;
+  padding-bottom: 2.5px;
+  height: 40.5px;
+}
+
+.tab.inactive {
+  height: 32px;
+  opacity: 0.85;
+  z-index: 1;
+}
+
+.strip-wrap {
+  flex-shrink: 0;
+  height: 12px;
+  position: relative;
+  z-index: 5;
+}
+.strip-wrap svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.folder-body {
+  flex: 1;
+  background: white;
+  border: 2.5px solid #1A1008;
+  border-top: 2.5px solid #1A1008;
+  border-radius: 0 0 8px 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+  position: relative;
+  z-index: 5;
+}

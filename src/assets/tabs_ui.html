@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Linkdesk</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; font-family: Georgia, serif; overflow: hidden; }
+body { background: #FFDEB3; display: flex; flex-direction: column; padding: 20px; }
+.folder { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+/* ── Tab row — CSS only, never stretches ── */
+.tab-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;           /* fixed gap between tabs */
+  padding-left: 16px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+}
+
+.tab {
+  /* Size to content with minimum padding */
+  padding: 0 16px;    /* minimum 8px each side + some breathing room */
+  height: 38px;
+  min-width: 0;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1A1008;
+  cursor: pointer;
+  border: 2.5px solid #1A1008;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;  /* fixed 8px — never changes */
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
+  user-select: none;
+}
+
+.tab.active {
+  z-index: 10;
+  margin-bottom: -2.5px;
+  padding-bottom: 2.5px;
+  height: 40.5px;
+}
+
+.tab.inactive {
+  height: 32px;
+  opacity: 0.85;
+  z-index: 1;
+}
+
+/* ── SVG strip — only this stretches ── */
+.strip-wrap {
+  flex-shrink: 0;
+  height: 12px;
+  position: relative;
+  z-index: 5;
+}
+.strip-wrap svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Folder body ── */
+.folder-body {
+  flex: 1;
+  background: white;
+  border: 2.5px solid #1A1008;
+  border-top: 2.5px solid #1A1008;
+  border-radius: 0 0 8px 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+  position: relative;
+  z-index: 5;
+}
+
+.topbar { display:flex; justify-content:space-between; align-items:center; padding:11px 20px; border-bottom:1.5px solid #E8E0D0; flex-shrink:0; }
+.logo { font-size:16px; font-weight:700; color:#1A1008; }
+.topbar-r { display:flex; gap:8px; align-items:center; }
+.btn { font-family:Georgia,serif; font-size:11px; padding:5px 13px; border:1.5px solid #1A1008; background:transparent; cursor:pointer; border-radius:2px; color:#1A1008; }
+.btn:hover { background:#F5EDE0; }
+.btn.dark { background:#1A1008; color:white; }
+.signout { font-size:11px; color:#8B7355; cursor:pointer; }
+
+.scroll { flex:1; overflow-y:auto; padding:14px 20px 20px; min-height:0; }
+.scroll::-webkit-scrollbar { width:4px; }
+.scroll::-webkit-scrollbar-thumb { background:#D4C4A8; border-radius:2px; }
+
+.view { display:none; }
+.view.on { display:block; }
+.stat { font-size:11px; color:#8B7355; font-style:italic; margin-bottom:14px; display:flex; justify-content:space-between; }
+.stat span:last-child { cursor:pointer; }
+
+.grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+@media (max-width:700px) { .grid { grid-template-columns:repeat(2,1fr); } }
+.pile { background:white; border:1.5px solid #1A1008; padding:12px; position:relative; box-shadow:3px 3px 0 #1A1008; cursor:pointer; transition:transform .1s,box-shadow .1s; }
+.pile:hover { transform:translate(-1px,-1px); box-shadow:4px 4px 0 #1A1008; }
+.pile::after { content:''; position:absolute; inset:3px -3px -3px 3px; border:1.5px solid #1A1008; background:#F5F0E8; z-index:-1; }
+.pn { font-size:8px; letter-spacing:.1em; text-transform:uppercase; color:#8B7355; }
+.pt { font-size:11px; font-weight:700; color:#1A1008; margin:3px 0 12px; line-height:1.35; }
+.ps { font-size:9px; color:#8B7355; line-height:1.6; }
+.dot { width:9px; height:9px; border-radius:50%; border:1.5px solid #1A1008; position:absolute; top:10px; right:10px; }
+
+.igrid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+.icard { background:white; border:1.5px solid #1A1008; overflow:hidden; box-shadow:2px 2px 0 #1A1008; cursor:pointer; }
+.ithumb { width:100%; height:80px; background:#EDE5D8; display:flex; align-items:center; justify-content:center; font-size:28px; }
+.imeta { padding:8px 9px; }
+.ititle { font-size:9px; font-weight:700; color:#1A1008; margin-bottom:2px; line-height:1.3; }
+.ivibe { font-size:8px; color:#8B7355; }
+
+.compose { background:white; border:1.5px solid #D0C8BC; padding:12px 12px 10px 42px; position:relative; box-shadow:2px 2px 0 #C0B8AC; margin-bottom:13px; }
+.compose::before { content:''; position:absolute; left:30px; top:0; bottom:0; width:1.5px; background:#E8A090; }
+.ruled { position:absolute; left:42px; right:0; top:0; bottom:0; pointer-events:none; background-image:repeating-linear-gradient(transparent,transparent calc(1.75em - 1px),#C8D8F0 calc(1.75em - 1px),#C8D8F0 1.75em); background-position:0 12px; }
+.compose textarea { width:100%; min-height:56px; border:none; background:transparent; font-family:Georgia,serif; font-size:12px; color:#1A1008; line-height:1.75; resize:none; outline:none; position:relative; z-index:1; }
+.cfoot { display:flex; justify-content:space-between; align-items:center; margin-top:8px; padding-top:7px; border-top:1px dashed #D0C8BC; position:relative; z-index:1; }
+.chint { font-size:10px; color:#A08060; font-style:italic; }
+.tlist { display:flex; flex-direction:column; gap:11px; }
+.thought { background:white; border:1.5px solid #D0C8BC; padding:12px 12px 10px 42px; position:relative; box-shadow:2px 2px 0 #C0B8AC; background-image:repeating-linear-gradient(transparent,transparent calc(1.75em - 1px),#C8D8F0 calc(1.75em - 1px),#C8D8F0 1.75em); background-position:0 12px; }
+.thought::before { content:''; position:absolute; left:30px; top:0; bottom:0; width:1.5px; background:#E8A090; }
+.tt { font-size:12px; color:#1A1008; line-height:1.75; margin-bottom:6px; position:relative; z-index:1; }
+.tm { font-size:9px; color:#A08060; font-style:italic; position:relative; z-index:1; }
+.ml { text-decoration:underline; text-decoration-color:#7B9E87; text-underline-offset:2px; font-style:italic; cursor:pointer; }
+.mt { text-decoration:underline; text-decoration-color:#C4A882; text-underline-offset:2px; font-style:italic; cursor:pointer; }
+
+.search-layer { display:none; position:absolute; inset:0; background:white; z-index:20; flex-direction:column; border-radius:0 0 8px 8px; overflow:hidden; }
+.search-layer.on { display:flex; }
+.sbar { display:flex; gap:10px; align-items:center; padding:12px 20px; border-bottom:1.5px solid #E8E0D0; flex-shrink:0; }
+.sbar input { flex:1; font-family:Georgia,serif; font-size:14px; border:1.5px solid #C0B8A8; padding:7px 12px; border-radius:2px; background:#FAF7F0; color:#1A1008; outline:none; }
+.sbar input:focus { border-color:#1A1008; }
+.sx { font-size:22px; cursor:pointer; color:#8B7355; line-height:1; }
+.sbody { flex:1; overflow-y:auto; padding:14px 20px; }
+.shint { font-size:11px; color:#8B7355; font-style:italic; margin-bottom:12px; }
+.sgrid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+</style>
+</head>
+<body>
+<div class="folder">
+
+  <!-- CSS tabs — fixed size, fixed gap, fixed radius -->
+  <div class="tab-row" id="tab-row">
+    <div class="tab active"   id="tab-links"    style="background:#FF7D4E;" onclick="setTab('links')">Links</div>
+    <div class="tab inactive" id="tab-images"   style="background:#54B5DF;" onclick="setTab('images')">Images</div>
+    <div class="tab inactive" id="tab-thoughts" style="background:#96C434;" onclick="setTab('thoughts')">Thoughts</div>
+  </div>
+
+  <!-- SVG strip — only this stretches, gap measured from CSS tabs above -->
+  <div class="strip-wrap" id="strip-wrap">
+    <svg id="strip-svg" xmlns="http://www.w3.org/2000/svg" style="display:block;width:100%;height:12px;"></svg>
+  </div>
+
+  <!-- Folder body -->
+  <div class="folder-body">
+    <div class="topbar">
+      <span class="logo">linkdesk</span>
+      <div class="topbar-r">
+        <button class="btn" onclick="openSearch()">⌕ Search</button>
+        <button class="btn dark">+ Add link</button>
+        <span class="signout">Sign out</span>
+      </div>
+    </div>
+    <div class="scroll">
+    <!-- Content -->
+    <div class="scroll">
+
+      <!-- LINKS -->
+      <div id="v-links" class="view on">
+        <div class="stat"><span>155 links · 20 piles</span><span>↺ Reorganise</span></div>
+        <div class="grid">
+          <div class="pile"><div class="dot" style="background:#E05A3A"></div><div class="pn">14 links</div><div class="pt">AI & Automation Workflows</div><div class="ps">Using Claude with Variables<br>Claude Code Prompt Engi…</div></div>
+          <div class="pile"><div class="dot" style="background:#4A8860"></div><div class="pn">4 links</div><div class="pt">Branding & Visual Identity</div><div class="ps">La Revoltosa<br>Igochi Studio</div></div>
+          <div class="pile"><div class="dot" style="background:#4488CC"></div><div class="pn">8 links</div><div class="pt">Creative Tools & Platforms</div><div class="ps">Remotion<br>Fouuund.it</div></div>
+          <div class="pile"><div class="dot" style="background:#AA44CC"></div><div class="pn">14 links</div><div class="pt">Design Inspiration & References</div><div class="ps">Instagram Reel Design<br>Millennials' Financial…</div></div>
+          <div class="pile"><div class="dot" style="background:#CC8844"></div><div class="pn">11 links</div><div class="pt">Design Learning & Education</div><div class="ps">UI/UX Savior on X<br>Dhruv on X</div></div>
+          <div class="pile"><div class="dot" style="background:#CC4488"></div><div class="pn">16 links</div><div class="pt">Design Philosophy & Critique</div><div class="ps">Kushnir Design<br>Twitter Platform</div></div>
+          <div class="pile"><div class="dot" style="background:#88CC44"></div><div class="pn">9 links</div><div class="pt">Design Systems & Components</div><div class="ps">Cardinal System<br>Astryx Design</div></div>
+          <div class="pile"><div class="dot" style="background:#44CC88"></div><div class="pn">19 links</div><div class="pt">Design Tools & Software</div><div class="ps">uiGradients<br>ui.land</div></div>
+          <div class="pile"><div class="dot" style="background:#CC4444"></div><div class="pn">14 links</div><div class="pt">Designer Portfolios & Studios</div><div class="ps">Akansha Mandal<br>Gahan's Portfolio</div></div>
+        </div>
+      </div>
+
+      <!-- IMAGES -->
+      <div id="v-images" class="view">
+        <div class="stat"><span>12 images · 4 categories</span><span>↺ Reorganise</span></div>
+        <div class="igrid">
+          <div class="icard"><div class="ithumb">🏗</div><div class="imeta"><div class="ititle">Fitsol supply chain hero section</div><div class="ivibe">minimal · clean · futuristic</div></div></div>
+          <div class="icard"><div class="ithumb">🌿</div><div class="imeta"><div class="ititle">UPC Renewables homepage</div><div class="ivibe">clean · professional · editorial</div></div></div>
+          <div class="icard"><div class="ithumb">📐</div><div class="imeta"><div class="ititle">On Grid Lil icon set</div><div class="ivibe">geometric · systematic · minimal</div></div></div>
+          <div class="icard"><div class="ithumb">🎒</div><div class="imeta"><div class="ititle">Illustrated traveller character</div><div class="ivibe">playful · illustrated · warm</div></div></div>
+          <div class="icard"><div class="ithumb">🎨</div><div class="imeta"><div class="ititle">Muted colour palette reference</div><div class="ivibe">calm · muted · editorial</div></div></div>
+          <div class="icard"><div class="ithumb">⬜</div><div class="imeta"><div class="ititle">Negative space study</div><div class="ivibe">minimal · airy · intentional</div></div></div>
+        </div>
+      </div>
+
+      <!-- THOUGHTS -->
+      <div id="v-thoughts" class="view">
+        <div class="stat"><span>8 thoughts</span></div>
+        <div class="compose">
+          <div class="ruled"></div>
+          <textarea placeholder="What's on your mind? Type @ to mention a link, image, tag, or category…"></textarea>
+          <div class="cfoot">
+            <span class="chint">@ to mention · cmd+enter to save</span>
+            <button class="btn dark" style="font-size:10px;padding:4px 11px;">Save</button>
+          </div>
+        </div>
+        <div class="tlist">
+          <div class="thought"><div class="tt">The negative space in <span class="ml">on-grid-lil</span> is exactly what I've been trying to articulate. Breathing room as a decision. Connects to <span class="mt">#whitespace</span>.</div><div class="tm">Today · 2:14 pm</div></div>
+          <div class="thought"><div class="tt">Why does <span class="mt">#motion-design</span> feel more intentional in my June saves? Go back and look at <span class="ml">spade-website</span> with fresh eyes.</div><div class="tm">Yesterday · 11:42 pm</div></div>
+          <div class="thought"><div class="tt">Everything in <span class="ml">parallel-logistics</span> shares one thing — hierarchy felt before it's read. Worth writing about for my portfolio. Connects to <span class="mt">#editorial-layout</span>.</div><div class="tm">3 Aug · 9:07 pm</div></div>
+          <div class="thought"><div class="tt">The diagonal crop on <span class="ml">fitsol-hero</span> is doing so much heavy lifting. Layout tricks that feel structural, not decorative.</div><div class="tm">1 Aug · 4:33 pm</div></div>
+        </div>
+      </div>
+
+
+    </div>
+
+    <!-- Search overlay -->
+    <div class="search-layer" id="search">
+      <div class="sbar">
+        <input type="text" id="sq" placeholder="Search by vibe, title, tag, or feeling…" oninput="doSearch(this.value)">
+        <span class="sx" onclick="closeSearch()">✕</span>
+      </div>
+      <div class="sbody">
+        <div class="shint" id="sh">Type to search across links, images, and thoughts</div>
+        <div class="sgrid" id="sr"></div>
+      </div>
+    </div>
+
+  </div>
+
+  </div>
+  </div>
+  </div>
+  </div>
+</div>
+
+<script>
+const COLORS = { links: '#FF7D4E', images: '#54B5DF', thoughts: '#96C434' };
+
+function drawStrip(activeId) {
+  const activeTab = document.getElementById('tab-' + activeId);
+  const wrap = document.getElementById('strip-wrap');
+  const svg = document.getElementById('strip-svg');
+  const color = COLORS[activeId];
+
+  const wrapRect = wrap.getBoundingClientRect();
+  const tabRect  = activeTab.getBoundingClientRect();
+  const W = Math.round(wrapRect.width);
+  const H = 12;
+  const SW = 2.5;
+
+  // Set viewBox to actual pixel dimensions — no scaling, strokes always 2.5px
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+  const gapL = Math.max(0,  tabRect.left  - wrapRect.left);
+  const gapR = Math.min(W,  tabRect.right - wrapRect.left);
+
+  svg.innerHTML = `
+    <rect x="0" y="0" width="${W}" height="${H}" fill="${color}"/>
+    <line x1="0"       y1="${SW/2}" x2="${gapL}" y2="${SW/2}" stroke="#1A1008" stroke-width="${SW}"/>
+    <line x1="${gapR}" y1="${SW/2}" x2="${W}"     y2="${SW/2}" stroke="#1A1008" stroke-width="${SW}"/>
+    <line x1="${SW/2}" y1="0"       x2="${SW/2}"  y2="${H}"    stroke="#1A1008" stroke-width="${SW}"/>
+    <line x1="${W-SW/2}" y1="0"     x2="${W-SW/2}" y2="${H}"   stroke="#1A1008" stroke-width="${SW}"/>
+  `;
+}
+
+function setTab(tab) {
+  ['links','images','thoughts'].forEach(id => {
+    const t = document.getElementById('tab-' + id);
+    t.classList.toggle('active',   id === tab);
+    t.classList.toggle('inactive', id !== tab);
+  });
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('on'));
+  document.getElementById('v-' + tab).classList.add('on');
+  closeSearch();
+  requestAnimationFrame(() => drawStrip(tab));
+}
+
+const DATA = [
+  { t:'link',  title:'Parallel — Logistics Technology Platform', vibe:'modern · technical', dot:'#E05A3A' },
+  { t:'link',  title:'Spade — Website Design Showcase',          vibe:'clean · modern',     dot:'#4488CC' },
+  { t:'link',  title:'On Grid Lil — Animated Supply Chain Icons',vibe:'minimal · geometric', dot:'#4A8860' },
+  { t:'link',  title:'Lydia Leiwang — Personal Portfolio',       vibe:'clean · illustrated', dot:'#AA44CC' },
+  { t:'image', title:'Fitsol supply chain hero section',         vibe:'minimal · clean',    emoji:'🏗' },
+  { t:'image', title:'Muted colour palette reference',           vibe:'calm · editorial',   emoji:'🎨' },
+];
+
+function openSearch() { document.getElementById('search').classList.add('on'); document.getElementById('sq').focus(); doSearch(''); }
+function closeSearch() { document.getElementById('search').classList.remove('on'); document.getElementById('sq').value = ''; }
+function doSearch(q) {
+  const r = q ? DATA.filter(d => d.title.toLowerCase().includes(q.toLowerCase()) || d.vibe.toLowerCase().includes(q.toLowerCase())) : DATA;
+  document.getElementById('sh').textContent = q ? `${r.length} results for "${q}"` : `${r.length} recent saves`;
+  document.getElementById('sr').innerHTML = r.map(d =>
+    d.t === 'link'
+      ? `<div class="pile"><div class="dot" style="background:${d.dot}"></div><div class="pn">link</div><div class="pt">${d.title}</div><div class="ps">${d.vibe}</div></div>`
+      : `<div class="icard"><div class="ithumb">${d.emoji}</div><div class="imeta"><div class="ititle">${d.title}</div><div class="ivibe">${d.vibe}</div></div></div>`
+  ).join('');
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSearch(); });
+window.addEventListener('load',   () => setTab('links'));
+window.addEventListener('resize', () => {
+  const active = document.querySelector('.tab.active');
+  if (active) drawStrip(active.id.replace('tab-', ''));
+});
+</script>
+</body>
+</html>
