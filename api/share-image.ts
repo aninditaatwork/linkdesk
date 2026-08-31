@@ -1,13 +1,12 @@
 import { createClient } from '@supabase/supabase-js'
 
 export const config = {
-  api: { bodyParser: false },
+  runtime: 'edge',
 }
 
-export default async function handler(req: any, res: any) {
+export default async function handler(req: Request) {
   if (req.method !== 'POST') {
-    res.status(405).send('Method not allowed')
-    return
+    return new Response('Method not allowed', { status: 405 })
   }
 
   try {
@@ -22,9 +21,7 @@ export default async function handler(req: any, res: any) {
       if (sharedUrl) params.set('url', sharedUrl)
       const combinedText = [sharedTitle, sharedText].filter(Boolean).join(' ')
       if (combinedText) params.set('text', combinedText)
-      res.writeHead(303, { Location: `/?${params.toString()}` })
-      res.end()
-      return
+      return Response.redirect(new URL(`/?${params.toString()}`, req.url), 303)
     }
 
     const supabase = createClient(
@@ -43,16 +40,12 @@ export default async function handler(req: any, res: any) {
 
     if (error) {
       console.error('share-inbox upload failed:', error.message)
-      res.writeHead(303, { Location: '/' })
-      res.end()
-      return
+      return Response.redirect(new URL('/', req.url), 303)
     }
 
-    res.writeHead(303, { Location: `/?pendingImage=${encodeURIComponent(filename)}` })
-    res.end()
+    return Response.redirect(new URL(`/?pendingImage=${encodeURIComponent(filename)}`, req.url), 303)
   } catch (err) {
     console.error('share-image handler error:', err)
-    res.writeHead(303, { Location: '/' })
-    res.end()
+    return Response.redirect(new URL('/', req.url), 303)
   }
 }
