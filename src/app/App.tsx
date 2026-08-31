@@ -1898,9 +1898,9 @@ function VisualDetailPanel({ visual, moodboards, onClose, onSave }: {
 // same notched left edge, same backdrop/spring-in — instead of the old
 // full-page paste/review/processing/done flow.
 
-function ImportPanel({ onImportDone, onClose }: { onImportDone: () => void; onClose: () => void }) {
+function ImportPanel({ onImportDone, onClose, initialText }: { onImportDone: () => void; onClose: () => void; initialText?: string }) {
   const [step, setStep] = useState<"paste" | "review" | "processing" | "done">("paste")
-  const [rawText, setRawText] = useState("")
+  const [rawText, setRawText] = useState(initialText || "")
   const [parsedLinks, setParsedLinks] = useState<ParsedLink[]>([])
   const [error, setError] = useState("")
   const [status, setStatus] = useState("")
@@ -2608,6 +2608,7 @@ export default function App() {
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const [linksView, setLinksView] = useState<"all" | "categories">("all")
   const [showLinkImport, setShowLinkImport] = useState(false)
+  const [sharedText, setSharedText] = useState<string | null>(null)
   const [selectedLink, setSelectedLink] = useState<SavedLink | null>(null)
   const [showSearch, setShowSearch] = useState(false)
   const [reclustering, setReclustering] = useState(false)
@@ -2664,6 +2665,17 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const sharedUrl = params.get("url") || ""
+    const sharedTextParam = params.get("text") || ""
+    const combined = [sharedUrl, sharedTextParam].filter(Boolean).join("\n")
+    if (combined) {
+      setSharedText(combined)
+      setShowLinkImport(true)
+      window.history.replaceState({}, "", window.location.pathname)
+    }
+  }, [])
   useEffect(() => { fetchLinks() }, [])
   useEffect(() => { fetchVisuals(); fetchMoodboards() }, [])
   useEffect(() => { fetchThoughts() }, [])
@@ -2950,7 +2962,8 @@ export default function App() {
         {showLinkImport && (
           <ImportPanel
             onImportDone={handleImportDone}
-            onClose={() => setShowLinkImport(false)}
+            onClose={() => { setShowLinkImport(false); setSharedText(null) }}
+            initialText={sharedText || undefined}
           />
         )}
       </AnimatePresence>
