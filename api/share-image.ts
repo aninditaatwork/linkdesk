@@ -24,10 +24,12 @@ export default async function handler(req: Request) {
       return Response.redirect(new URL(`/?${params.toString()}`, req.url), 303)
     }
 
-    const supabase = createClient(
-      process.env.SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
+    const supabaseUrl = process.env.SUPABASE_URL
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    console.log('DEBUG env check — URL present:', !!supabaseUrl, 'KEY present:', !!supabaseKey)
+    console.log('DEBUG URL value:', supabaseUrl)
+
+    const supabase = createClient(supabaseUrl!, supabaseKey!)
 
     const filename = `${Date.now()}-${file.name}`
     const arrayBuffer = await file.arrayBuffer()
@@ -39,13 +41,13 @@ export default async function handler(req: Request) {
       })
 
     if (error) {
-      console.error('share-inbox upload failed:', error.message)
+      console.error('share-inbox upload failed — full error:', JSON.stringify(error, null, 2))
       return Response.redirect(new URL('/', req.url), 303)
     }
 
     return Response.redirect(new URL(`/?pendingImage=${encodeURIComponent(filename)}`, req.url), 303)
   } catch (err) {
-    console.error('share-image handler error:', err)
+    console.error('share-image handler error:', err instanceof Error ? err.message : String(err))
     return Response.redirect(new URL('/', req.url), 303)
   }
 }
