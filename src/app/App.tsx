@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react"
 import { motion, AnimatePresence } from "motion/react"
 import { createClient } from "@supabase/supabase-js"
 import { Search, Plus, ExternalLink, Loader2, X, ArrowRight, ArrowLeft, Pencil, Check, Trash2, RefreshCw, Upload } from "lucide-react"
+import Masonry, { ResponsiveMasonry } from "react-responsive-masonry"
 import "./folderTabs.css"
 
 // ─── Folder tab strip — copied from src/assets/tabs_ui.html (drawStrip) ────
@@ -111,6 +112,7 @@ interface Moodboard {
 interface SavedThought {
   id: string
   content: string
+  title: string | null
   created_at: string
 }
 
@@ -158,9 +160,29 @@ function getCardRotation(seed: string): number {
   return ((h % 9) - 4) * 0.45
 }
 
+// Category stacks read as tossed-down piles of paper, so they get a wider,
+// more visible tilt than individual cards. A multiplicative hash (rather than
+// a plain char-code sum) spreads out better so similarly-named categories
+// don't end up with near-identical angles.
+function getStackTilt(seed: string): number {
+  let h = 0
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0
+  h = Math.abs(h)
+  return ((h % 71) - 35) / 10
+}
+
 function getThoughtRotation(seed: string): number {
   const h = seed.split("").reduce((a, c) => a + c.charCodeAt(0), 0)
   return ((h % 21) - 10) / 20
+}
+
+// Maps a value proportionally from [inMin, inMax] onto [outMin, outMax].
+// Used to scale a category stack's thickness/stagger relative to the
+// smallest and largest categories in the current collection, rather than
+// fixed thresholds — see CategoryStack / VisualCategoryStack.
+function mapRange(val: number, inMin: number, inMax: number, outMin: number, outMax: number): number {
+  if (inMax === inMin) return (outMin + outMax) / 2
+  return outMin + ((val - inMin) / (inMax - inMin)) * (outMax - outMin)
 }
 
 // ─── Thought mention helpers ────────────────────────────────────────────────
@@ -222,6 +244,36 @@ function insertMention(root: HTMLElement, queryLen: number, type: MentionType, v
   newRange.collapse(true)
   sel.removeAllRanges()
   sel.addRange(newRange)
+}
+
+// Inverse of serializeThoughtContent — rebuilds the contentEditable DOM (text
+// nodes + mention spans) from a stored "[[type:value]]" string, so opening a
+// saved thought for editing looks and behaves exactly like one just typed.
+function hydrateThoughtContent(root: HTMLElement, content: string) {
+  root.innerHTML = ""
+  const regex = new RegExp(MENTION_REGEX.source, "g")
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = regex.exec(content)) !== null) {
+    if (match.index > lastIndex) root.appendChild(document.createTextNode(content.slice(lastIndex, match.index)))
+    const type = match[1] as MentionType
+    const value = match[2]
+    const label = type === "tag" ? `#${value}` : value
+
+    const span = document.createElement("span")
+    span.textContent = label
+    span.contentEditable = "false"
+    span.dataset.mentionType = type
+    span.dataset.mentionValue = value
+    span.style.fontStyle = "italic"
+    span.style.textDecoration = "underline"
+    span.style.textDecorationColor = MENTION_COLORS[type]
+    span.style.textUnderlineOffset = "2px"
+    root.appendChild(span)
+
+    lastIndex = match.index + match[0].length
+  }
+  if (lastIndex < content.length) root.appendChild(document.createTextNode(content.slice(lastIndex)))
 }
 
 function serializeThoughtContent(root: HTMLElement): string {
@@ -332,10 +384,65 @@ function recoverFields(link: SavedLink): Partial<SavedLink> {
 
 // ─── Paper Card (individual link) ──────────────────────────────────────────
 
-function PaperCard({ link, onClick, index }: { link: SavedLink; onClick: () => void; index: number }) {
-  const rotation = getCardRotation(link.id)
+// The card's actual visual design, split out from PaperCard so it can be
+// reused as the front sheet of a category stack (see CategoryStack) without
+// dragging along PaperCard's own click/hover/entrance behaviour.
+function PaperCardContent({ link }: { link: SavedLink }) {
   const vibes = link.vibe ? link.vibe.split(",").map(v => v.trim()).filter(Boolean) : []
   const tags = Array.isArray(link.tags) ? link.tags : []
+
+  return (
+    <div
+      className="bg-card rounded-sm overflow-hidden flex flex-col h-full"
+      style={{ border: "2px solid #0F0D0A", boxShadow: "4px 4px 0 #0F0D0A" }}
+    >
+      {link.image_url && (
+        <div className="h-32 overflow-hidden bg-muted border-b-2 border-foreground shrink-0">
+          <img
+            src={link.image_url}
+            alt={link.title}
+            className="w-full h-full object-cover"
+            onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = "none" }}
+          />
+        </div>
+      )}
+      <div className="p-4 flex-1 flex flex-col gap-2">
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-sm font-semibold leading-snug line-clamp-2 flex-1" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+            {link.title || (() => { try { return new URL(link.url).hostname } catch { return link.url } })()}
+          </p>
+          {link.url && (
+            <a
+              href={link.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={e => e.stopPropagation()}
+              className="shrink-0 mt-0.5 opacity-50 hover:opacity-100"
+            >
+              <ExternalLink size={13} />
+            </a>
+          )}
+        </div>
+        {link.summary && (
+          <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{link.summary}</p>
+        )}
+        {(vibes.length > 0 || tags.length > 0) && (
+          <div className="flex flex-wrap gap-1 pt-1 mt-auto">
+            {vibes.slice(0, 2).map(v => (
+              <span key={v} className="text-xs px-2 py-0.5 rounded-sm bg-accent" style={{ border: "1px solid #0F0D0A" }}>{v}</span>
+            ))}
+            {tags.slice(0, 2).map(t => (
+              <span key={t} className="text-xs px-2 py-0.5 rounded-sm bg-muted opacity-70">#{t}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function PaperCard({ link, onClick, index }: { link: SavedLink; onClick: () => void; index: number }) {
+  const rotation = getCardRotation(link.id)
 
   return (
     <motion.div
@@ -348,59 +455,61 @@ function PaperCard({ link, onClick, index }: { link: SavedLink; onClick: () => v
       className="cursor-pointer"
       style={{ transformOrigin: "center bottom" }}
     >
-      <div
-        className="bg-card rounded-sm overflow-hidden flex flex-col"
-        style={{ border: "2px solid #0F0D0A", boxShadow: "4px 4px 0 #0F0D0A" }}
-      >
-        {link.image_url && (
-          <div className="h-32 overflow-hidden bg-muted border-b-2 border-foreground shrink-0">
-            <img
-              src={link.image_url}
-              alt={link.title}
-              className="w-full h-full object-cover"
-              onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = "none" }}
-            />
-          </div>
-        )}
-        <div className="p-4 flex-1 flex flex-col gap-2">
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-sm font-semibold leading-snug line-clamp-2 flex-1" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
-              {link.title || (() => { try { return new URL(link.url).hostname } catch { return link.url } })()}
-            </p>
-            <a
-              href={link.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={e => e.stopPropagation()}
-              className="shrink-0 mt-0.5 opacity-50 hover:opacity-100"
-            >
-              <ExternalLink size={13} />
-            </a>
-          </div>
-          {link.summary && (
-            <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{link.summary}</p>
-          )}
-          {(vibes.length > 0 || tags.length > 0) && (
-            <div className="flex flex-wrap gap-1 pt-1 mt-auto">
-              {vibes.slice(0, 2).map(v => (
-                <span key={v} className="text-xs px-2 py-0.5 rounded-sm bg-accent" style={{ border: "1px solid #0F0D0A" }}>{v}</span>
-              ))}
-              {tags.slice(0, 2).map(t => (
-                <span key={t} className="text-xs px-2 py-0.5 rounded-sm bg-muted opacity-70">#{t}</span>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+      <PaperCardContent link={link} />
     </motion.div>
   )
 }
 
 // ─── Visual Card (individual image) ────────────────────────────────────────
 
-function VisualCard({ visual, onClick, index }: { visual: SavedVisual; onClick: () => void; index: number }) {
-  const rotation = getCardRotation(visual.id)
+// Same split as PaperCardContent — the polaroid's visual design, reusable as
+// the front sheet of an image category stack (see VisualCategoryStack).
+function VisualCardContent({ visual, placeholderColor }: { visual: SavedVisual; placeholderColor?: string }) {
   const vibes = Array.isArray(visual.vibe) ? visual.vibe : []
+
+  return (
+    <div
+      className="rounded-sm overflow-hidden h-full flex flex-col"
+      style={{ background: "#FEFCF6", border: "2px solid #0F0D0A", boxShadow: "4px 4px 0 #0F0D0A", padding: "10px 10px 14px" }}
+    >
+      <div className="overflow-hidden bg-muted shrink-0" style={{ border: "1px solid rgba(15,13,10,0.15)" }}>
+        {visual.public_url ? (
+          <img
+            src={visual.public_url}
+            alt={visual.title}
+            className="w-full h-auto object-cover block"
+            onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = "none" }}
+          />
+        ) : (
+          <div className="w-full aspect-square" style={{ background: placeholderColor || "#E8E2D8" }} />
+        )}
+      </div>
+      <div className="pt-3 flex flex-col gap-1.5 items-center text-center overflow-hidden">
+        <p className="text-sm font-semibold leading-snug line-clamp-2" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+          {visual.title || "Untitled"}
+        </p>
+        {vibes.length > 0 && (
+          <div className="flex flex-wrap gap-1 justify-center">
+            {vibes.slice(0, 3).map(v => (
+              <span key={v} className="text-xs px-2 py-0.5 rounded-sm bg-accent" style={{ border: "1px solid #0F0D0A" }}>{v}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function VisualCard({ visual, onClick, index, layoutClassName = "cursor-pointer break-inside-avoid mb-4 inline-block w-full" }: {
+  visual: SavedVisual
+  onClick: () => void
+  index: number
+  // masonry-layout classes some call sites need (CSS `columns`) and others
+  // don't (react-responsive-masonry, a real CSS grid) — override to "cursor-pointer"
+  // wherever the parent already handles spacing, so gaps don't double up
+  layoutClassName?: string
+}) {
+  const rotation = getCardRotation(visual.id)
 
   return (
     <motion.div
@@ -410,34 +519,10 @@ function VisualCard({ visual, onClick, index }: { visual: SavedVisual; onClick: 
       exit={{ opacity: 0, scale: 0.9 }}
       whileHover={{ y: -6, rotate: 0, transition: { type: "spring", stiffness: 400, damping: 20 } }}
       onClick={onClick}
-      className="cursor-pointer break-inside-avoid mb-4 inline-block w-full"
+      className={layoutClassName}
       style={{ transformOrigin: "center bottom" }}
     >
-      <div
-        className="bg-card rounded-sm overflow-hidden flex flex-col"
-        style={{ border: "2px solid #0F0D0A", boxShadow: "4px 4px 0 #0F0D0A" }}
-      >
-        <div className="overflow-hidden bg-muted border-b-2 border-foreground shrink-0">
-          <img
-            src={visual.public_url}
-            alt={visual.title}
-            className="w-full h-auto object-cover block"
-            onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = "none" }}
-          />
-        </div>
-        <div className="p-3 flex flex-col gap-1.5">
-          <p className="text-sm font-semibold leading-snug line-clamp-2" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
-            {visual.title || "Untitled"}
-          </p>
-          {vibes.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {vibes.slice(0, 3).map(v => (
-                <span key={v} className="text-xs px-2 py-0.5 rounded-sm bg-accent" style={{ border: "1px solid #0F0D0A" }}>{v}</span>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+      <VisualCardContent visual={visual} />
     </motion.div>
   )
 }
@@ -530,13 +615,14 @@ function VisualUploadZone({ onUploaded }: { onUploaded: (visual: SavedVisual) =>
 
 // ─── Thought Page (torn notebook page shell) ───────────────────────────────
 
-function ThoughtPage({ children, rotation = 0, className = "" }: {
+function ThoughtPage({ children, rotation = 0, className = "", onClick }: {
   children: React.ReactNode
   rotation?: number
   className?: string
+  onClick?: () => void
 }) {
   return (
-    <div className={`thought-page ${className}`} style={{ transform: `rotate(${rotation}deg)` }}>
+    <div className={`thought-page ${className}`} style={{ transform: `rotate(${rotation}deg)` }} onClick={onClick}>
       <div className="thought-page-lines" />
       <div className="thought-page-margin" />
       <div className="thought-page-holes">
@@ -639,16 +725,80 @@ function MentionDropdown({ tags, linksList, visualsList, categories, onSelect }:
   )
 }
 
-// ─── Thoughts Compose Box ───────────────────────────────────────────────────
+// ─── Thought Composer — "New Post" immersive writing scene ────────────────
+// This is the only way to write a new thought (the old inline compose box on
+// the Thoughts page was removed in favour of this). It reuses the same
+// mention encoding (getMentionQueryAtCaret/insertMention/serializeThoughtContent
+// from the "Thought mention helpers" section above) so @ mentions, search, and
+// rendering on saved thoughts all behave exactly as they did before.
+// Ported from thought_writing.html: the room dims, a clipboard + lamp + desk
+// widgets slide together in the dark, then a tug on the cord clicks the lamp
+// on. Reversed on the way out. See src/styles/thoughtComposer.css.
 
-function ThoughtsComposeBox({ links, visuals, onSaved }: {
+function ThoughtComposerClock() {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 10000)
+    return () => clearInterval(id)
+  }, [])
+  const hh = String(now.getHours()).padStart(2, "0")
+  const mm = String(now.getMinutes()).padStart(2, "0")
+  return (
+    <div className="tc-clock">
+      <svg width="145" height="55" viewBox="0 0 145 55" style={{ position: "absolute", inset: 0 }}>
+        <rect x="1" y="1" width="143" height="53" rx="17" fill="#1B3043" stroke="black" strokeWidth="2" />
+      </svg>
+      <div className="tc-face">
+        <span>{hh}</span><span className="tc-colon">:</span><span>{mm}</span>
+      </div>
+    </div>
+  )
+}
+
+const LAMP_PALETTE = [
+  { sw: "#F2BD78", from: "#FF7D4E", fromOp: 0.25, to: "#994B2F", off: 0.716346 },
+  { sw: "#FFBCCA", from: "#BE80FF", fromOp: 0.22, to: "#A44EFF", off: 0.528407 },
+  { sw: "#CFA2FF", from: "#A44EFF", fromOp: 1.0, to: "#8E2AF9", off: 0.570997 },
+  { sw: "#B4F250", from: "#96C434", fromOp: 1.0, to: "#43A9D5", off: 0.653846 },
+  { sw: "#FFC132", from: "#FF7D4E", fromOp: 0.25, to: "#994B2F", off: 0.855769 },
+]
+
+function ThoughtComposerScene({ thought, links, visuals, onSaved, onDeleted, onClose }: {
+  thought?: SavedThought | null
   links: SavedLink[]
   visuals: SavedVisual[]
   onSaved: (thought: SavedThought) => void
+  onDeleted?: (id: string) => void
+  onClose: () => void
 }) {
+  const isEditing = !!thought
+  const canvasRef = useRef<HTMLDivElement>(null)
   const composeRef = useRef<HTMLDivElement>(null)
+  const rulesRef = useRef<HTMLDivElement>(null)
+  const rectRef = useRef<SVGRectElement>(null)
+  const knobRef = useRef<SVGCircleElement>(null)
+  const stop1Ref = useRef<SVGStopElement>(null)
+  const stop2Ref = useRef<SVGStopElement>(null)
+  const scaleRef = useRef(1)
+  const idxRef = useRef(0)
+  const closingRef = useRef(false)
+  const escapeHandlerRef = useRef<() => void>(() => {})
+
+  const [title, setTitle] = useState(thought?.title || "")
+  const [wordCount, setWordCount] = useState(0)
+  const [dirty, setDirty] = useState(false)
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  const [mentionRect, setMentionRect] = useState<{ left: number; top: number } | null>(null)
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmingClose, setConfirmingClose] = useState(false)
+  const [error, setError] = useState("")
+  const [entered, setEntered] = useState(false)
+  const [lit, setLit] = useState(false)
+
+  const reduce = useMemo(() => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches, [])
+  const dateLabel = useMemo(() => new Date().toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" }), [])
 
   const tagCounts = useMemo(() => {
     const counts: Record<string, number> = {}
@@ -665,40 +815,6 @@ function ThoughtsComposeBox({ links, visuals, onSaved }: {
     ...links.map(l => l.category).filter(Boolean),
     ...visuals.map(v => v.category).filter((c): c is string => Boolean(c)),
   ])].sort(), [links, visuals])
-
-  function handleInput() {
-    if (!composeRef.current) return
-    setMentionQuery(getMentionQueryAtCaret(composeRef.current))
-  }
-
-  function handleSelect(type: MentionType, value: string, label: string) {
-    if (!composeRef.current || mentionQuery === null) return
-    insertMention(composeRef.current, mentionQuery.length, type, value, label)
-    setMentionQuery(null)
-    composeRef.current.focus()
-  }
-
-  async function handleSave() {
-    if (!composeRef.current || saving) return
-    const content = serializeThoughtContent(composeRef.current).trim()
-    if (!content) return
-    setSaving(true)
-    try {
-      const response = await fetch(SAVE_THOUGHT_URL, {
-        method: "POST",
-        headers: await authHeader(),
-        body: JSON.stringify({ content }),
-      })
-      if (!response.ok) throw new Error("Failed to save")
-      const { thought } = await response.json()
-      if (thought) {
-        onSaved(thought)
-        composeRef.current.innerHTML = ""
-        setMentionQuery(null)
-      }
-    } catch (_) { /* swallow — save button re-enables so the user can retry */ }
-    setSaving(false)
-  }
 
   const q = (mentionQuery || "").toLowerCase()
   const filteredTags = Object.entries(tagCounts).filter(([tag]) => tag.toLowerCase().includes(q)).slice(0, 6)
@@ -717,17 +833,226 @@ function ThoughtsComposeBox({ links, visuals, onSaved }: {
     filteredCategories.length ? { type: "category", value: filteredCategories[0], label: filteredCategories[0] } :
     null
 
-  function handleKeyDown(e: React.KeyboardEvent) {
+  function applyColour() {
+    const p = LAMP_PALETTE[idxRef.current]
+    rectRef.current?.setAttribute("fill", p.sw)
+    knobRef.current?.setAttribute("fill", p.sw)
+    stop1Ref.current?.setAttribute("stop-color", p.from)
+    stop1Ref.current?.setAttribute("stop-opacity", String(p.fromOp))
+    stop2Ref.current?.setAttribute("stop-color", p.to)
+    stop2Ref.current?.setAttribute("offset", String(p.off))
+  }
+
+  function setPull(dragY: number, animate: boolean) {
+    const rect = rectRef.current, knob = knobRef.current
+    if (!rect || !knob) return
+    rect.style.transition = animate ? "height .4s ease" : "none"
+    knob.style.transition = animate ? "cy .4s ease" : "none"
+    rect.setAttribute("height", String(320 + dragY))
+    knob.setAttribute("cy", String(314 + dragY))
+  }
+
+  function autoPullOn() {
+    setPull(44, true)
+    setTimeout(() => { setLit(true); setPull(0, true) }, 420)
+  }
+
+  function autoPullOff(done: () => void) {
+    setPull(44, true)
+    setTimeout(() => {
+      setLit(false)
+      setPull(0, true)
+      setTimeout(done, 380)
+    }, 420)
+  }
+
+  function requestClose(skipConfirm = false) {
+    if (closingRef.current) return
+    const hasChanges = isEditing
+      ? dirty
+      : !!(composeRef.current?.textContent || "").trim() || !!title.trim()
+    if (!skipConfirm && hasChanges) { setConfirmingClose(true); return }
+    closingRef.current = true
+    if (reduce || isEditing) { onClose(); return }
+    autoPullOff(onClose)
+  }
+
+  function handleEscapeKey() {
+    if (confirmingClose) { setConfirmingClose(false); return }
+    if (mentionQuery !== null) { setMentionQuery(null); setMentionRect(null); return }
+    requestClose()
+  }
+  // keeps the window-level Escape listener (registered once, below) calling
+  // into whichever render's closure actually has the current title/dirty/
+  // confirmingClose/mentionQuery — otherwise it'd be stuck reading mount-time values
+  useEffect(() => { escapeHandlerRef.current = handleEscapeKey })
+
+  async function handleSave() {
+    if (!composeRef.current || saving) return
+    const trimmed = serializeThoughtContent(composeRef.current).trim()
+    if (!trimmed) return
+    setSaving(true)
+    setError("")
+
+    if (isEditing && thought) {
+      const updatedTitle = title.trim() || null
+      const { error: dbError } = await supabase.from("thoughts").update({ title: updatedTitle, content: trimmed }).eq("id", thought.id)
+      if (dbError) {
+        setError("Couldn't save — try again")
+        setSaving(false)
+        return
+      }
+      onSaved({ ...thought, title: updatedTitle, content: trimmed })
+      closingRef.current = true
+      onClose()
+      return
+    }
+
+    try {
+      const response = await fetch(SAVE_THOUGHT_URL, {
+        method: "POST",
+        headers: await authHeader(),
+        body: JSON.stringify({ content: trimmed, title: title.trim() || null }),
+      })
+      if (!response.ok) throw new Error("Failed to save")
+      const { thought: saved } = await response.json()
+      if (saved) {
+        onSaved(saved)
+        closingRef.current = true
+        if (reduce) { onClose(); return }
+        autoPullOff(onClose)
+        return
+      }
+    } catch (_) {
+      setError("Couldn't save — try again")
+    }
+    setSaving(false)
+  }
+
+  async function handleDelete() {
+    if (!thought || deleting) return
+    if (!confirmDelete) { setConfirmDelete(true); return }
+    setDeleting(true)
+    const { error: dbError } = await supabase.from("thoughts").delete().eq("id", thought.id)
+    if (dbError) { setDeleting(false); return }
+    onDeleted?.(thought.id)
+    closingRef.current = true
+    onClose()
+  }
+
+  useEffect(() => {
+    function fit() {
+      if (!canvasRef.current) return
+      const s = Math.min(window.innerWidth / 1280, window.innerHeight / 832)
+      scaleRef.current = s
+      canvasRef.current.style.transform = `scale(${s})`
+    }
+    fit()
+    window.addEventListener("resize", fit)
+    applyColour()
+
+    // opening a saved thought: hydrate its content into the writer and skip
+    // straight to "lit" — same clipboard/lamp/desk scene, just without the
+    // dark-room-then-lamp-turns-on entrance performance
+    if (thought && composeRef.current) {
+      hydrateThoughtContent(composeRef.current, thought.content)
+      const t = (composeRef.current.textContent || "").trim()
+      setWordCount(t ? t.split(/\s+/).length : 0)
+    }
+
+    setEntered(true)
+    let onTimer: ReturnType<typeof setTimeout> | undefined
+    let focusTimer: ReturnType<typeof setTimeout> | undefined
+    if (isEditing) {
+      // viewing/editing an existing thought — no need to grab the cursor,
+      // the user is here to read first
+      setLit(true)
+    } else if (reduce) {
+      setLit(true)
+      focusTimer = setTimeout(() => composeRef.current?.focus(), 50)
+    } else {
+      const ASSEMBLE_MS = 1250
+      onTimer = setTimeout(autoPullOn, ASSEMBLE_MS)
+      focusTimer = setTimeout(() => composeRef.current?.focus(), ASSEMBLE_MS + 1150)
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") escapeHandlerRef.current()
+    }
+    window.addEventListener("keydown", onKeyDown)
+
+    return () => {
+      window.removeEventListener("resize", fit)
+      window.removeEventListener("keydown", onKeyDown)
+      if (onTimer) clearTimeout(onTimer)
+      if (focusTimer) clearTimeout(focusTimer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function syncRules() {
+    if (!rulesRef.current || !composeRef.current) return
+    rulesRef.current.style.backgroundPositionY = `${-composeRef.current.scrollTop}px`
+  }
+
+  function handleComposeInput() {
+    if (!composeRef.current) return
+    const t = (composeRef.current.textContent || "").trim()
+    setWordCount(t ? t.split(/\s+/).length : 0)
+    const q = getMentionQueryAtCaret(composeRef.current)
+    setMentionQuery(q)
+    if (q !== null) {
+      const sel = window.getSelection()
+      if (sel && sel.rangeCount > 0) {
+        const rect = sel.getRangeAt(0).getBoundingClientRect()
+        // a collapsed range can momentarily report an empty 0,0 rect right
+        // after a DOM mutation — skip those, keep the last good position
+        if (rect.left || rect.top || rect.width || rect.height) {
+          setMentionRect({ left: rect.left, top: rect.bottom })
+        }
+      }
+    }
+    setDirty(true)
+    syncRules()
+  }
+
+  function handleMentionSelect(type: MentionType, value: string, label: string) {
+    if (!composeRef.current || mentionQuery === null) return
+    insertMention(composeRef.current, mentionQuery.length, type, value, label)
+    setMentionQuery(null)
+    setMentionRect(null)
+    composeRef.current.focus()
+  }
+
+  function handleKnobPointerDown(e: React.PointerEvent) {
+    e.preventDefault()
+    const startY = e.clientY
+    function move(ev: PointerEvent) {
+      const delta = Math.max(0, (ev.clientY - startY) / (scaleRef.current || 1))
+      setPull(Math.min(60, delta), false)
+    }
+    function up() {
+      window.removeEventListener("pointermove", move)
+      window.removeEventListener("pointerup", up)
+      idxRef.current = (idxRef.current + 1) % LAMP_PALETTE.length
+      applyColour()
+      setPull(0, true)
+    }
+    window.addEventListener("pointermove", move)
+    window.addEventListener("pointerup", up)
+  }
+
+  function handleComposeKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault()
       handleSave()
       return
     }
     if (mentionQuery !== null) {
-      if (e.key === "Escape") { e.preventDefault(); setMentionQuery(null); return }
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setMentionQuery(null); setMentionRect(null); return }
       if (e.key === "Enter") {
         e.preventDefault()
-        if (firstMatch) handleSelect(firstMatch.type, firstMatch.value, firstMatch.label)
+        if (firstMatch) handleMentionSelect(firstMatch.type, firstMatch.value, firstMatch.label)
         return
       }
     }
@@ -737,37 +1062,194 @@ function ThoughtsComposeBox({ links, visuals, onSaved }: {
     }
   }
 
+  function handleTitleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault()
+      handleSave()
+    } else if (e.key === "Enter") {
+      e.preventDefault()
+      composeRef.current?.focus()
+    }
+  }
+
+  // dropdown docks just under the line being typed on — computed from the
+  // caret's real screen position (mentionRect), not the canvas's local
+  // coordinate space, since this renders outside the scaled canvas
+  const DOCK_WIDTH = 300
+  let dockStyle: React.CSSProperties | undefined
+  if (mentionQuery !== null && mentionRect) {
+    const estHeight = 260
+    const openUpward = window.innerHeight - mentionRect.top < estHeight + 20
+    const top = openUpward ? mentionRect.top - estHeight - 26 : mentionRect.top + 6
+    const left = Math.min(mentionRect.left, window.innerWidth - DOCK_WIDTH - 16)
+    dockStyle = { position: "fixed", left: Math.max(16, left), top: Math.max(16, top), width: DOCK_WIDTH, zIndex: 200 }
+  }
+
   return (
-    <div className="relative mb-8">
-      <ThoughtPage rotation={0}>
-        <div
-          ref={composeRef}
-          contentEditable
-          suppressContentEditableWarning
-          data-placeholder="@ to mention · cmd+enter to save"
-          onInput={handleInput}
-          onKeyDown={handleKeyDown}
-          className="thought-editable outline-none"
-        />
-        <div className="flex justify-end mt-2">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-sm text-sm font-semibold disabled:opacity-40"
-            style={{ background: "#0F0D0A", color: "#FFEADA", border: "2px solid #0F0D0A", boxShadow: "2px 2px 0 rgba(15,13,10,0.3)" }}
-          >
-            {saving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Save
+    <div className={`thought-composer${entered ? " tc-entered" : ""}${lit ? " tc-lit" : ""}`}>
+      <div className="tc-stage">
+        <div ref={canvasRef} className={`tc-canvas${lit ? " tc-lit" : ""}`}>
+          <button className="tc-back-btn" onClick={() => requestClose()}>
+            <ArrowLeft size={12} /> back
           </button>
+
+          {/* clipboard: hook + board + paper, one physical object */}
+          <div className="tc-clipboard-group">
+            <div className="tc-paper-back" />
+            <div className="tc-paper-front" />
+
+            <div className="tc-writer-wrap">
+              <div className="tc-paper-margin" />
+              <input
+                type="text"
+                className="tc-title-input"
+                placeholder="Title (optional)"
+                value={title}
+                onChange={e => { setTitle(e.target.value); setDirty(true) }}
+                onKeyDown={handleTitleKeyDown}
+              />
+              <div className="tc-writer-field">
+                <div className="tc-rules" ref={rulesRef} />
+                <div
+                  ref={composeRef}
+                  className="tc-writer"
+                  contentEditable
+                  suppressContentEditableWarning
+                  spellCheck
+                  data-placeholder="What's on your mind… (@ to mention)"
+                  onInput={handleComposeInput}
+                  onScroll={syncRules}
+                  onKeyDown={handleComposeKeyDown}
+                />
+              </div>
+              <div className="tc-paper-meta">
+                <div className="tc-meta-left">
+                  <span className="tc-date">{dateLabel}</span>
+                  <span>{wordCount} {wordCount === 1 ? "word" : "words"}</span>
+                  {error && <span style={{ color: "#C24A2E" }}>{error}</span>}
+                </div>
+                <div className="tc-meta-right">
+                  {isEditing && (
+                    <button
+                      className="tc-delete-btn"
+                      onClick={handleDelete}
+                      disabled={deleting}
+                    >
+                      {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                      {confirmDelete ? "Confirm?" : "Delete"}
+                    </button>
+                  )}
+                  <button
+                    className="tc-save-btn"
+                    onClick={handleSave}
+                    disabled={saving || wordCount === 0}
+                  >
+                    {saving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                    {saving ? "Saving…" : isEditing ? "Update · ⌘⏎" : "Save · ⌘⏎"}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* green hook / shelf */}
+            <svg width="1280" height="832" style={{ position: "absolute", left: 0, top: 0, pointerEvents: "none", zIndex: 10 }}>
+              <path d="M695.081 126C719.465 126 739.231 145.767 739.231 170.15H1187.71C1192.84 170.15 1197 174.312 1197 179.445V193.388H949.526V231.729C949.526 241.995 941.203 250.318 930.937 250.318H458.063C447.797 250.318 439.474 241.995 439.474 231.729V193.388H192V179.445C192 174.312 196.162 170.15 201.295 170.15H650.931C650.931 145.767 670.698 126 695.081 126ZM694.5 145.752C680.898 145.752 669.836 156.623 669.527 170.15H719.473C719.164 156.623 708.102 145.752 694.5 145.752Z" fill="#96C434" stroke="#171310" strokeWidth="2.3" />
+            </svg>
+          </div>
+
+          {/* lamp cord */}
+          <svg className="tc-cord-svg" width="1280" height="832">
+            <g className="tc-cord-group">
+              <rect ref={rectRef} x="101.5" y="-6" width="3" height="320" fill="#F2BD78" stroke="#171310" strokeWidth="2" />
+              <circle
+                ref={knobRef}
+                className="tc-cord-knob"
+                cx="103" cy="314" r="10.9091"
+                fill="#F2BD78" stroke="#171310" strokeWidth="2.18"
+                onPointerDown={handleKnobPointerDown}
+              />
+            </g>
+          </svg>
+
+          {/* music widget */}
+          <div className="tc-widget">
+            <svg width="385" height="169" viewBox="0 0 385 169" style={{ overflow: "visible", display: "block", pointerEvents: "none" }}>
+              <defs>
+                <radialGradient id="tcWmScreenGlow" cx="50%" cy="50%" r="70%">
+                  <stop offset="0%" stopColor="#CFA2FF" stopOpacity="0.12" />
+                  <stop offset="100%" stopColor="#CFA2FF" stopOpacity="0" />
+                </radialGradient>
+                <mask id="tcWmBar1"><rect x="218" y="32" width="4" height="13" rx="1" fill="white" /></mask>
+                <mask id="tcWmBar2"><rect x="223" y="32" width="4" height="13" rx="1" fill="white" /></mask>
+              </defs>
+              <rect x="1" y="3" width="283" height="70" rx="11" fill="#A44EFF" stroke="#171310" strokeWidth="2" />
+              <rect x="11" y="13" width="160" height="49" rx="7" fill="#0A0A0A" stroke="#171310" strokeWidth="2" />
+              <rect x="11" y="13" width="160" height="49" rx="7" fill="url(#tcWmScreenGlow)" />
+              <g style={{ transformOrigin: "216px 38px", animation: "tc-spinVinyl 8s linear infinite" }}>
+                <path d="M216 1C236.435 1 253 17.5655 253 38C253 58.4345 236.435 75 216 75C195.565 75 179 58.4345 179 38C179 17.5655 195.565 1 216 1Z" fill="#BE82FF" stroke="#171310" strokeWidth="2" strokeLinecap="round" />
+                <path d="M216 1C236.435 1 253 17.5655 253 38C253 58.4345 236.435 75 216 75" fill="none" stroke="#CFA2FF" strokeWidth="2" strokeLinecap="round" />
+              </g>
+              <circle cx="216" cy="38" r="23.0408" fill="#A44EFF" stroke="#171310" strokeWidth="2" />
+              <path d="M205 43.8261V33.0309C205 32.2012 205.952 31.7324 206.61 32.2382L213.996 37.92C214.533 38.333 214.512 39.1492 213.955 39.5348L206.569 44.6483C205.906 45.1075 205 44.6328 205 43.8261Z" fill="#CFA2FF" stroke="#171310" strokeWidth="2" />
+              <rect x="218" y="32" width="4" height="13" rx="1" fill="#CFA2FF" stroke="#171310" strokeWidth="4" mask="url(#tcWmBar1)" />
+              <rect x="223" y="32" width="4" height="13" rx="1" fill="#CFA2FF" stroke="#171310" strokeWidth="4" mask="url(#tcWmBar2)" />
+            </svg>
+            <div style={{ position: "absolute", left: 11, top: 13, width: 160, height: 49, overflow: "hidden", display: "flex", alignItems: "center", pointerEvents: "none" }}>
+              <div style={{ display: "flex", whiteSpace: "nowrap", animation: "tc-marquee 9s linear infinite" }}>
+                <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, letterSpacing: ".03em", color: "#CFA2FF", textShadow: "0 0 6px rgba(207,162,255,.6)", paddingRight: 28 }}>♪ Now Playing — Wildflower Radio</span>
+                <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, letterSpacing: ".03em", color: "#CFA2FF", textShadow: "0 0 6px rgba(207,162,255,.6)", paddingRight: 28 }}>♪ Now Playing — Wildflower Radio</span>
+              </div>
+            </div>
+          </div>
+
+          {/* digital clock (live) */}
+          <ThoughtComposerClock />
         </div>
-      </ThoughtPage>
-      {mentionQuery !== null && (
-        <MentionDropdown
-          tags={filteredTags}
-          linksList={filteredLinks}
-          visualsList={filteredVisuals}
-          categories={filteredCategories}
-          onSelect={handleSelect}
-        />
+
+        {/* ambient lamp light — a full-viewport layer, siblings with (not
+            nested inside) the scaled canvas, so the glow always reaches every
+            edge of the screen instead of being clipped to the canvas's own
+            1280x832 box. viewBox + preserveAspectRatio="none" stretches the
+            same relative geometry to whatever the real viewport is. */}
+        <svg className="tc-lamp-light" viewBox="0 0 1280 832" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="tcLampLight" x1="117.229" y1="128.889" x2="1351.17" y2="1128.29" gradientUnits="userSpaceOnUse">
+              <stop ref={stop1Ref} stopColor="#FF7D4E" stopOpacity="0.25" />
+              <stop ref={stop2Ref} offset="0.716346" stopColor="#994B2F" />
+            </linearGradient>
+          </defs>
+          <ellipse cx="521" cy="587.5" rx="808" ry="628.5" fill="url(#tcLampLight)" fillOpacity="0.25" style={{ transition: "fill .6s ease" }} />
+        </svg>
+      </div>
+
+      {/* mention dropdown — rendered outside the scaled canvas so its fixed
+          left/top (from the caret's real getBoundingClientRect) land correctly */}
+      {mentionQuery !== null && dockStyle && (
+        <div style={dockStyle}>
+          <MentionDropdown
+            tags={filteredTags}
+            linksList={filteredLinks}
+            visualsList={filteredVisuals}
+            categories={filteredCategories}
+            onSelect={handleMentionSelect}
+          />
+        </div>
+      )}
+
+      {/* discard-changes confirmation — in-app styled, not the browser's native confirm() */}
+      {confirmingClose && (
+        <div className="tc-confirm-overlay" onClick={() => setConfirmingClose(false)}>
+          <div className="tc-confirm-card" onClick={e => e.stopPropagation()}>
+            <p className="tc-confirm-title">{isEditing ? "Discard changes?" : "Discard this thought?"}</p>
+            <p className="tc-confirm-body">
+              {isEditing ? "Your edits haven't been saved." : "What you've written won't be saved."}
+            </p>
+            <div className="tc-confirm-actions">
+              <button className="tc-confirm-cancel" onClick={() => setConfirmingClose(false)}>Keep writing</button>
+              <button className="tc-confirm-discard" onClick={() => { setConfirmingClose(false); requestClose(true) }}>Discard</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
@@ -775,10 +1257,11 @@ function ThoughtsComposeBox({ links, visuals, onSaved }: {
 
 // ─── Thought Card ───────────────────────────────────────────────────────────
 
-function ThoughtCard({ thought, links, visuals, onLinkClick, onVisualClick, onTagClick, onCategoryClick }: {
+function ThoughtCard({ thought, links, visuals, onClick, onLinkClick, onVisualClick, onTagClick, onCategoryClick }: {
   thought: SavedThought
   links: SavedLink[]
   visuals: SavedVisual[]
+  onClick: () => void
   onLinkClick: (l: SavedLink) => void
   onVisualClick: (v: SavedVisual) => void
   onTagClick: (tag: string) => void
@@ -791,7 +1274,12 @@ function ThoughtCard({ thought, links, visuals, onLinkClick, onVisualClick, onTa
   )
 
   return (
-    <ThoughtPage rotation={rotation} className="mb-6">
+    <ThoughtPage rotation={rotation} className="mb-6 cursor-pointer" onClick={onClick}>
+      {thought.title && (
+        <p className="mb-1.5" style={{ margin: "0 0 6px", fontFamily: "'DM Serif Display', serif", fontSize: "1.05rem", fontWeight: 600 }}>
+          {thought.title}
+        </p>
+      )}
       <p className="whitespace-pre-wrap" style={{ margin: 0 }}>{rendered}</p>
       <p className="text-xs opacity-40 mt-3" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
         {new Date(thought.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
@@ -816,6 +1304,11 @@ function ThoughtSnippetCard({ thought, onClick, index }: { thought: SavedThought
       className="cursor-pointer break-inside-avoid mb-4 inline-block w-full"
     >
       <ThoughtPage rotation={rotation}>
+        {thought.title && (
+          <p style={{ margin: "0 0 6px", fontFamily: "'DM Serif Display', serif", fontSize: "1.05rem", fontWeight: 600 }}>
+            {thought.title}
+          </p>
+        )}
         <p style={{ margin: 0 }}>{snippet}</p>
         <p className="text-xs opacity-40 mt-2" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
           {new Date(thought.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
@@ -826,12 +1319,15 @@ function ThoughtSnippetCard({ thought, onClick, index }: { thought: SavedThought
 }
 
 // ─── Thoughts View ──────────────────────────────────────────────────────────
+// "Scattered pages" — this view lists what's already saved. Clicking a page
+// reopens it in the same lamp-lit desk scene used for "New Post"
+// (ThoughtComposerScene), already lit and pre-filled, no dark-room entrance.
 
-function ThoughtsView({ thoughts, links, visuals, onSaved, onLinkClick, onVisualClick, onTagClick, onCategoryClick }: {
+function ThoughtsView({ thoughts, links, visuals, onThoughtClick, onLinkClick, onVisualClick, onTagClick, onCategoryClick }: {
   thoughts: SavedThought[]
   links: SavedLink[]
   visuals: SavedVisual[]
-  onSaved: (thought: SavedThought) => void
+  onThoughtClick: (t: SavedThought) => void
   onLinkClick: (l: SavedLink) => void
   onVisualClick: (v: SavedVisual) => void
   onTagClick: (tag: string) => void
@@ -839,13 +1335,13 @@ function ThoughtsView({ thoughts, links, visuals, onSaved, onLinkClick, onVisual
 }) {
   return (
     <div className="flex-1 overflow-y-auto px-8 py-8">
-      <ThoughtsComposeBox links={links} visuals={visuals} onSaved={onSaved} />
       {thoughts.map(t => (
         <ThoughtCard
           key={t.id}
           thought={t}
           links={links}
           visuals={visuals}
+          onClick={() => onThoughtClick(t)}
           onLinkClick={onLinkClick}
           onVisualClick={onVisualClick}
           onTagClick={onTagClick}
@@ -853,7 +1349,7 @@ function ThoughtsView({ thoughts, links, visuals, onSaved, onLinkClick, onVisual
         />
       ))}
       {!thoughts.length && (
-        <p className="text-sm text-muted-foreground opacity-50 text-center py-12">No thoughts yet — jot something down above.</p>
+        <p className="text-sm text-muted-foreground opacity-50 text-center py-12">No thoughts yet — click "New Post" above to jot something down.</p>
       )}
     </div>
   )
@@ -861,14 +1357,52 @@ function ThoughtsView({ thoughts, links, visuals, onSaved, onLinkClick, onVisual
 
 // ─── Category Stack ────────────────────────────────────────────────────────
 
-function CategoryStack({ category, links, paletteIndex, onClick }: {
+// Stack "thickness" (1-5 back layers) and stagger (2-10px) scale relative to
+// the smallest/largest category in the current collection — the biggest pile
+// is always the thickest, smallest is always just the front card alone.
+// Width is shared so the two grids line up; height is set per stack type
+// below since a text-only card and a photo card have very different natural
+// sizes — forcing them to a single height either stretches one with dead
+// space or clips the other.
+// Matches the "Enter Recruitment — Hiring & Recruitment Services" PaperCard
+// on the All links page — no image, a full 2-line summary, vibe+tags — as a
+// floor: the stack should never render smaller than a real, fairly full card.
+const STACK_CARD_W = 260
+// padding around the front card — this is the only thing separating one
+// row's stack from the next (grid row-gap is 0), so it directly sets the
+// row spacing at 2x this value. Sized to ~1/3 of the previous 32px; the
+// per-category stagger below is capped to stay safely inside it.
+const STACK_PADDING = 11
+
+function CategoryStack({ category, links, paletteIndex, minCount, maxCount, onClick }: {
   category: string
   links: SavedLink[]
   paletteIndex: number
+  minCount: number
+  maxCount: number
   onClick: () => void
 }) {
   const palette = STACK_PALETTES[paletteIndex % STACK_PALETTES.length]
-  const preview = links.slice(0, 3)
+  // Height matching the "Enter Recruitment" reference card at this width:
+  // 2-line title + 2-line summary + two wrapped rows of pills (32 padding +
+  // 38.5 title + 8 gap + 39 summary + 8 gap + 46 for two pill rows).
+  const cardH = 180
+
+  const layerCount = Math.round(mapRange(links.length, minCount, maxCount, 1, 5))
+  const stagger = mapRange(links.length, minCount, maxCount, 1.5, 6)
+  const backLayers = Array.from({ length: Math.max(0, layerCount - 1) }, (_, k) => layerCount - 1 - k)
+  const tilt = getStackTilt(category)
+
+  // Synthetic "link" so the front sheet is the exact PaperCard component —
+  // same border/shadow/title/summary/tags layout — just reading the category
+  // instead of a single saved link. Tags are pulled from the category's real
+  // links so the card isn't left with an empty tag row.
+  const categoryTags = [...new Set(links.flatMap(l => Array.isArray(l.tags) ? l.tags : []))].slice(0, 2)
+  const categoryCard: SavedLink = {
+    id: category, url: "", title: category, slug: "", description: "",
+    image_url: "", user_note: "", summary: `${links.length} ${links.length === 1 ? "link" : "links"}`,
+    category, vibe: "", tags: categoryTags, platform: "", created_at: "",
+  }
 
   return (
     <motion.div
@@ -876,65 +1410,44 @@ function CategoryStack({ category, links, paletteIndex, onClick }: {
       whileTap={{ scale: 0.96 }}
       onClick={onClick}
       className="cursor-pointer relative"
-      style={{ width: 200, height: 240 }}
+      style={{ width: STACK_CARD_W + STACK_PADDING * 2, height: cardH + STACK_PADDING * 2, rotate: tilt }}
     >
-      {/* Back paper */}
-      <div
-        className="absolute inset-0 rounded-sm"
-        style={{
-          background: palette.back,
-          border: "2px solid #0F0D0A",
-          transform: "rotate(-7deg) translate(-6px, 6px)",
-          boxShadow: "3px 3px 0 #0F0D0A",
-        }}
-      />
-      {/* Mid paper */}
-      <div
-        className="absolute inset-0 rounded-sm"
-        style={{
-          background: palette.mid,
-          border: "2px solid #0F0D0A",
-          transform: "rotate(-3deg) translate(-2px, 3px)",
-          boxShadow: "3px 3px 0 #0F0D0A",
-        }}
-      />
-      {/* Front paper */}
-      <div
-        className="absolute inset-0 rounded-sm flex flex-col p-5"
-        style={{
-          background: palette.front,
-          border: "2px solid #0F0D0A",
-          transform: "rotate(1deg)",
-          boxShadow: "4px 4px 0 #0F0D0A",
-        }}
-      >
-        {/* Red pin */}
+      {/* Every layer — back and front — is built from the same card frame
+          (rounded-sm, 2px ink border, 4px shadow) as PaperCardContent, so the
+          whole pile reads as one family of card, just stacked and staggered. */}
+      {backLayers.map(i => (
         <div
-          className="absolute rounded-full"
+          key={i}
+          className="absolute rounded-sm"
           style={{
-            width: 14, height: 14,
-            background: "#F53535",
+            left: STACK_PADDING - i * stagger * 0.4,
+            top: STACK_PADDING + i * stagger * 0.3,
+            width: STACK_CARD_W, height: cardH,
+            background: i % 2 === 0 ? palette.back : palette.mid,
             border: "2px solid #0F0D0A",
-            top: 14, right: 18,
-            boxShadow: "1px 1px 0 #0F0D0A",
+            transform: `rotate(${(i % 2 === 0 ? -(i * 2) : (i * 2)) * 0.6}deg)`,
+            boxShadow: "4px 4px 0 #0F0D0A",
           }}
         />
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
-          {links.length} {links.length === 1 ? "link" : "links"}
-        </p>
-        <h3 className="font-semibold leading-tight text-foreground flex-1" style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "1.05rem" }}>
-          {category}
-        </h3>
-        {preview.length > 0 && (
-          <div className="space-y-1 mt-3">
-            {preview.slice(0, 2).map(l => (
-              <p key={l.id} className="text-xs text-muted-foreground truncate opacity-70">
-                {l.title || (() => { try { return new URL(l.url).hostname } catch { return "" } })()}
-              </p>
-            ))}
-          </div>
-        )}
+      ))}
+      {/* Front sheet — the exact PaperCard component */}
+      <div
+        className="absolute overflow-hidden rounded-sm"
+        style={{ left: STACK_PADDING, top: STACK_PADDING, width: STACK_CARD_W, height: cardH, transform: "rotate(1deg)" }}
+      >
+        <PaperCardContent link={categoryCard} />
       </div>
+      {/* Red pin marks it as a pile, not a single saved link */}
+      <div
+        className="absolute rounded-full"
+        style={{
+          width: 14, height: 14,
+          background: "#F53535",
+          border: "2px solid #0F0D0A",
+          top: STACK_PADDING + 8, right: STACK_PADDING + 10,
+          boxShadow: "1px 1px 0 #0F0D0A",
+        }}
+      />
     </motion.div>
   )
 }
@@ -1512,7 +2025,7 @@ function SearchView({ links, visuals, thoughts, initialQuery, onLinkClick, onVis
         return words.every(word => haystack.includes(word))
       }).map(v => ({ ...v, type: "visual" as const }))
       const keywordThoughts: SearchResultItem[] = thoughts.filter(t => {
-        const haystack = t.content.toLowerCase()
+        const haystack = [t.title, t.content].filter(Boolean).join(" ").toLowerCase()
         return words.every(word => haystack.includes(word))
       }).map(t => ({ ...t, type: "thought" as const }))
       const keywordResults: SearchResultItem[] = [...keywordLinks, ...keywordVisuals, ...keywordThoughts]
@@ -1640,14 +2153,33 @@ function CategoryView({ category, links, onBack, onCardClick }: {
 
 // ─── Visual Category Stack & View ──────────────────────────────────────────
 
-function VisualCategoryStack({ category, visuals, paletteIndex, onClick }: {
+function VisualCategoryStack({ category, visuals, paletteIndex, minCount, maxCount, onClick }: {
   category: string
   visuals: SavedVisual[]
   paletteIndex: number
+  minCount: number
+  maxCount: number
   onClick: () => void
 }) {
   const palette = STACK_PALETTES[paletteIndex % STACK_PALETTES.length]
-  const preview = visuals.slice(0, 4)
+  // Matches what VisualCardContent actually needs at the new shared width:
+  // a square placeholder photo (width minus its own 10px/side padding) plus
+  // the caption below it.
+  const cardH = 348
+
+  const layerCount = Math.round(mapRange(visuals.length, minCount, maxCount, 1, 5))
+  const stagger = mapRange(visuals.length, minCount, maxCount, 1.5, 6)
+  const backLayers = Array.from({ length: Math.max(0, layerCount - 1) }, (_, k) => layerCount - 1 - k)
+  const tilt = getStackTilt(category)
+
+  // Synthetic "visual" so the front sheet is the exact polaroid component —
+  // same frame/caption layout — reading the category instead of one image.
+  // Vibes are pulled from the category's real images so the tag row isn't empty.
+  const categoryVibes = [...new Set(visuals.flatMap(v => Array.isArray(v.vibe) ? v.vibe : []))].slice(0, 2)
+  const categoryCard: SavedVisual = {
+    id: category, storage_path: "", public_url: "", title: category, slug: "",
+    description: "", vibe: categoryVibes, tags: [], category, moodboard_id: null, user_note: "", created_at: "",
+  }
 
   return (
     <motion.div
@@ -1655,40 +2187,36 @@ function VisualCategoryStack({ category, visuals, paletteIndex, onClick }: {
       whileTap={{ scale: 0.96 }}
       onClick={onClick}
       className="cursor-pointer relative"
-      style={{ width: 200, height: 240 }}
+      style={{ width: STACK_CARD_W + STACK_PADDING * 2, height: cardH + STACK_PADDING * 2, rotate: tilt }}
     >
-      <div
-        className="absolute inset-0 rounded-sm"
-        style={{ background: palette.back, border: "2px solid #0F0D0A", transform: "rotate(-7deg) translate(-6px, 6px)", boxShadow: "3px 3px 0 #0F0D0A" }}
-      />
-      <div
-        className="absolute inset-0 rounded-sm"
-        style={{ background: palette.mid, border: "2px solid #0F0D0A", transform: "rotate(-3deg) translate(-2px, 3px)", boxShadow: "3px 3px 0 #0F0D0A" }}
-      />
-      <div
-        className="absolute inset-0 rounded-sm flex flex-col p-5"
-        style={{ background: palette.front, border: "2px solid #0F0D0A", transform: "rotate(1deg)", boxShadow: "4px 4px 0 #0F0D0A" }}
-      >
+      {/* Every layer built from the same polaroid frame as VisualCardContent,
+          so the whole pile reads as one family of card. */}
+      {backLayers.map(i => (
         <div
-          className="absolute rounded-full"
-          style={{ width: 14, height: 14, background: "#F53535", border: "2px solid #0F0D0A", top: 14, right: 18, boxShadow: "1px 1px 0 #0F0D0A" }}
+          key={i}
+          className="absolute rounded-sm"
+          style={{
+            left: STACK_PADDING - i * stagger * 0.4,
+            top: STACK_PADDING + i * stagger * 0.3,
+            width: STACK_CARD_W, height: cardH,
+            background: i % 2 === 0 ? palette.back : palette.mid,
+            border: "2px solid #0F0D0A",
+            transform: `rotate(${(i % 2 === 0 ? -(i * 2) : (i * 2)) * 0.6}deg)`,
+            boxShadow: "4px 4px 0 #0F0D0A",
+          }}
         />
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
-          {visuals.length} {visuals.length === 1 ? "image" : "images"}
-        </p>
-        <h3 className="font-semibold leading-tight text-foreground flex-1" style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "1.05rem" }}>
-          {category}
-        </h3>
-        {preview.length > 0 && (
-          <div className="flex gap-1 mt-3">
-            {preview.map(v => (
-              <div key={v.id} className="w-8 h-8 rounded-sm overflow-hidden shrink-0" style={{ border: "1px solid #0F0D0A" }}>
-                <img src={v.public_url} alt="" className="w-full h-full object-cover" />
-              </div>
-            ))}
-          </div>
-        )}
+      ))}
+      {/* Front sheet — the exact polaroid component */}
+      <div
+        className="absolute overflow-hidden rounded-sm"
+        style={{ left: STACK_PADDING, top: STACK_PADDING, width: STACK_CARD_W, height: cardH, transform: "rotate(1deg)" }}
+      >
+        <VisualCardContent visual={categoryCard} placeholderColor={palette.mid} />
       </div>
+      <div
+        className="absolute rounded-full"
+        style={{ width: 14, height: 14, background: "#F53535", border: "2px solid #0F0D0A", top: STACK_PADDING + 8, right: STACK_PADDING + 10, boxShadow: "1px 1px 0 #0F0D0A" }}
+      />
     </motion.div>
   )
 }
@@ -1755,6 +2283,9 @@ function VisualBoardView({ visuals, onCardClick, onUploaded, visualView, onSetVi
     return map
   }, [visuals])
   const categories = Object.keys(grouped).sort()
+  const categoryCounts = categories.map(cat => grouped[cat].length)
+  const minCount = categoryCounts.length ? Math.min(...categoryCounts) : 0
+  const maxCount = categoryCounts.length ? Math.max(...categoryCounts) : 0
 
   if (visualView === "categoryDetail" && activeVisualCategory) {
     return (
@@ -1805,14 +2336,19 @@ function VisualBoardView({ visuals, onCardClick, onUploaded, visualView, onSetVi
           <p className="text-sm text-muted-foreground opacity-60">Your visual board is empty — drop some images above to get started</p>
         </div>
       ) : visualView === "all" ? (
-        <div className="columns-2 sm:columns-3 lg:columns-4 xl:columns-5 gap-4">
-          {visuals.map((visual, i) => (
-            <VisualCard key={visual.id} visual={visual} onClick={() => onCardClick(visual)} index={i} />
-          ))}
-        </div>
+        // same fix as "All links": real masonry (drops each card into the
+        // shortest column) instead of CSS `columns`, which fills column-by-
+        // column and reads out of order
+        <ResponsiveMasonry columnsCountBreakPoints={{ 0: 2, 640: 3, 1024: 4, 1280: 5 }}>
+          <Masonry gutter="16px">
+            {visuals.map((visual, i) => (
+              <VisualCard key={visual.id} visual={visual} onClick={() => onCardClick(visual)} index={i} layoutClassName="cursor-pointer" />
+            ))}
+          </Masonry>
+        </ResponsiveMasonry>
       ) : (
         <motion.div
-          className="flex flex-wrap gap-10"
+          className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-4 gap-y-0 justify-items-center"
           initial="hidden"
           animate="visible"
           variants={{ visible: { transition: { staggerChildren: 0.07 } } }}
@@ -1822,7 +2358,7 @@ function VisualBoardView({ visuals, onCardClick, onUploaded, visualView, onSetVi
               key={cat}
               variants={{ hidden: { opacity: 0, y: 30 }, visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 280, damping: 22 } } }}
             >
-              <VisualCategoryStack category={cat} visuals={grouped[cat]} paletteIndex={i} onClick={() => onCategoryClick(cat)} />
+              <VisualCategoryStack category={cat} visuals={grouped[cat]} paletteIndex={i} minCount={minCount} maxCount={maxCount} onClick={() => onCategoryClick(cat)} />
             </motion.div>
           ))}
         </motion.div>
@@ -1833,8 +2369,11 @@ function VisualBoardView({ visuals, onCardClick, onUploaded, visualView, onSetVi
 
 // ─── Landing View ──────────────────────────────────────────────────────────
 
-function LandingView({ links, onCategoryClick, onRecluster, reclustering }: {
+function LandingView({ links, linksView, onSetLinksView, onCardClick, onCategoryClick, onRecluster, reclustering }: {
   links: SavedLink[]
+  linksView: "all" | "categories"
+  onSetLinksView: (v: "all" | "categories") => void
+  onCardClick: (link: SavedLink) => void
   onCategoryClick: (category: string) => void
   onRecluster: () => void
   reclustering: boolean
@@ -1850,6 +2389,9 @@ function LandingView({ links, onCategoryClick, onRecluster, reclustering }: {
   }, [links])
 
   const categories = Object.keys(grouped).sort()
+  const categoryCounts = categories.map(cat => grouped[cat].length)
+  const minCount = categoryCounts.length ? Math.min(...categoryCounts) : 0
+  const maxCount = categoryCounts.length ? Math.max(...categoryCounts) : 0
 
   if (!links.length) return (
     <div className="flex-1 flex items-center justify-center">
@@ -1873,37 +2415,73 @@ function LandingView({ links, onCategoryClick, onRecluster, reclustering }: {
 
   return (
     <div className="flex-1 overflow-y-auto px-8 py-8">
-      <div className="flex items-center justify-between mb-8">
-        <p className="text-xs text-muted-foreground opacity-50">{links.length} links across {categories.length} {categories.length === 1 ? "pile" : "piles"}</p>
-        <button
-          onClick={onRecluster}
-          disabled={reclustering || links.length < 5}
-          className="flex items-center gap-1.5 text-xs opacity-40 hover:opacity-80 disabled:opacity-20 transition-opacity"
-        >
-          <RefreshCw size={11} className={reclustering ? "animate-spin" : ""} />
-          {reclustering ? "Reorganising..." : "Reorganise categories"}
-        </button>
-      </div>
-      <motion.div
-        className="flex flex-wrap gap-10"
-        initial="hidden"
-        animate="visible"
-        variants={{ visible: { transition: { staggerChildren: 0.07 } } }}
-      >
-        {categories.map((cat, i) => (
-          <motion.div
-            key={cat}
-            variants={{ hidden: { opacity: 0, y: 30 }, visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 280, damping: 22 } } }}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-1 rounded-sm p-1" style={{ border: "1.5px solid rgba(15,13,10,0.2)" }}>
+          <button
+            onClick={() => onSetLinksView("all")}
+            className="px-3 py-1.5 rounded-sm text-xs font-medium transition-colors"
+            style={linksView === "all" ? { background: "#0F0D0A", color: "#FFEADA" } : { color: "#6B5B4A" }}
           >
-            <CategoryStack
-              category={cat}
-              links={grouped[cat]}
-              paletteIndex={i}
-              onClick={() => onCategoryClick(cat)}
-            />
-          </motion.div>
-        ))}
-      </motion.div>
+            All links
+          </button>
+          <button
+            onClick={() => onSetLinksView("categories")}
+            className="px-3 py-1.5 rounded-sm text-xs font-medium transition-colors"
+            style={linksView === "categories" ? { background: "#0F0D0A", color: "#FFEADA" } : { color: "#6B5B4A" }}
+          >
+            Categories
+          </button>
+        </div>
+        {linksView === "categories" ? (
+          <button
+            onClick={onRecluster}
+            disabled={reclustering || links.length < 5}
+            className="flex items-center gap-1.5 text-xs opacity-40 hover:opacity-80 disabled:opacity-20 transition-opacity"
+          >
+            <RefreshCw size={11} className={reclustering ? "animate-spin" : ""} />
+            {reclustering ? "Reorganising..." : "Reorganise categories"}
+          </button>
+        ) : (
+          <p className="text-xs text-muted-foreground opacity-50">{links.length} {links.length === 1 ? "link" : "links"}</p>
+        )}
+      </div>
+
+      {linksView === "all" ? (
+        // real masonry (measures rendered heights, drops each card into the
+        // shortest column) instead of CSS `columns`, which fills column-by-
+        // column and scrambles reading order — this keeps a natural
+        // left-to-right flow while still packing tightly, no dead gaps
+        <ResponsiveMasonry columnsCountBreakPoints={{ 0: 2, 640: 3, 1024: 4, 1280: 5 }}>
+          <Masonry gutter="16px">
+            {links.map((link, i) => (
+              <PaperCard key={link.id} link={link} onClick={() => onCardClick(link)} index={i} />
+            ))}
+          </Masonry>
+        </ResponsiveMasonry>
+      ) : (
+        <motion.div
+          className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-4 gap-y-0 justify-items-center"
+          initial="hidden"
+          animate="visible"
+          variants={{ visible: { transition: { staggerChildren: 0.07 } } }}
+        >
+          {categories.map((cat, i) => (
+            <motion.div
+              key={cat}
+              variants={{ hidden: { opacity: 0, y: 30 }, visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 280, damping: 22 } } }}
+            >
+              <CategoryStack
+                category={cat}
+                links={grouped[cat]}
+                paletteIndex={i}
+                minCount={minCount}
+                maxCount={maxCount}
+                onClick={() => onCategoryClick(cat)}
+              />
+            </motion.div>
+          ))}
+        </motion.div>
+      )}
     </div>
   )
 }
@@ -1968,6 +2546,7 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<"desk" | "category" | "import">("desk")
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
+  const [linksView, setLinksView] = useState<"all" | "categories">("all")
   const [selectedLink, setSelectedLink] = useState<SavedLink | null>(null)
   const [showSearch, setShowSearch] = useState(false)
   const [reclustering, setReclustering] = useState(false)
@@ -1984,6 +2563,8 @@ export default function App() {
   const [thoughts, setThoughts] = useState<SavedThought[]>([])
   const [thoughtsLoading, setThoughtsLoading] = useState(true)
   const [searchInitialQuery, setSearchInitialQuery] = useState("")
+  const [composerOpen, setComposerOpen] = useState(false)
+  const [selectedThought, setSelectedThought] = useState<SavedThought | null>(null)
 
   const categories = useMemo(() => [...new Set(links.map(l => l.category).filter(Boolean))].sort(), [links])
 
@@ -2005,7 +2586,7 @@ export default function App() {
   }
 
   async function fetchThoughts() {
-    const { data, error } = await supabase.from("thoughts").select("id, content, created_at").order("created_at", { ascending: false })
+    const { data, error } = await supabase.from("thoughts").select("id, content, title, created_at").order("created_at", { ascending: false })
     if (!error && data) setThoughts(data)
     setThoughtsLoading(false)
   }
@@ -2041,7 +2622,9 @@ export default function App() {
   }
 
   function handleThoughtSaved(thought: SavedThought) {
-    setThoughts(prev => [thought, ...prev])
+    setThoughts(prev => prev.some(t => t.id === thought.id)
+      ? prev.map(t => t.id === thought.id ? thought : t)
+      : [thought, ...prev])
   }
 
   function openSearchWithQuery(q: string) {
@@ -2147,6 +2730,15 @@ export default function App() {
                 <Plus size={14} /> Add links
               </button>
             )}
+            {board === "thoughts" && (
+              <button
+                onClick={() => setComposerOpen(true)}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-sm text-sm font-semibold"
+                style={{ background: "#0F0D0A", color: "#FFEADA", border: "2px solid #0F0D0A", boxShadow: "2px 2px 0 rgba(15,13,10,0.3)" }}
+              >
+                <Plus size={14} /> New Post
+              </button>
+            )}
             <button
               onClick={() => supabase.auth.signOut()}
               className="text-xs opacity-30 hover:opacity-60 transition-opacity px-2 py-2"
@@ -2187,7 +2779,7 @@ export default function App() {
                 thoughts={thoughts}
                 links={links}
                 visuals={visuals}
-                onSaved={handleThoughtSaved}
+                onThoughtClick={thought => setSelectedThought(thought)}
                 onLinkClick={link => setSelectedLink(link)}
                 onVisualClick={visual => setSelectedVisual(visual)}
                 onTagClick={tag => openSearchWithQuery(tag)}
@@ -2216,6 +2808,9 @@ export default function App() {
           ) : (
             <LandingView
               links={links}
+              linksView={linksView}
+              onSetLinksView={setLinksView}
+              onCardClick={link => setSelectedLink(link)}
               onCategoryClick={cat => { setActiveCategory(cat); setView("category") }}
               onRecluster={handleRecluster}
               reclustering={reclustering}
@@ -2274,6 +2869,21 @@ export default function App() {
           />
         )}
       </AnimatePresence>
+
+      {/* "New Post" composer and "open a saved note" share the same lamp-lit
+          desk scene — opening an existing thought just skips the dark-room
+          entrance and starts already lit, with its content hydrated in. */}
+      {(composerOpen || selectedThought) && (
+        <ThoughtComposerScene
+          key={selectedThought ? selectedThought.id : "new"}
+          thought={selectedThought}
+          links={links}
+          visuals={visuals}
+          onSaved={handleThoughtSaved}
+          onDeleted={id => setThoughts(prev => prev.filter(t => t.id !== id))}
+          onClose={() => { setComposerOpen(false); setSelectedThought(null) }}
+        />
+      )}
     </div>
   )
 }

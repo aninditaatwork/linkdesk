@@ -1,0 +1,154 @@
+/* ── Thought Composer — the "New Post" immersive writing scene ──────────────
+   Ported from the thought_writing.html reference: a desk scene that dims in,
+   assembles a clipboard + lamp + widgets in the dark, then clicks the lamp on.
+   All rules are scoped under .thought-composer / .tc-* to stay isolated from
+   the rest of the app. */
+
+/* step 1-2: the light dims and the screen goes black — a plain full-screen
+   fade to black, no colour, no boxed-in "canvas" background underneath the
+   scene (that's deliberately removed below so nothing but the desk objects
+   themselves has a background). */
+.thought-composer{position:fixed;inset:0;z-index:100;overflow:hidden;
+  background:#000;animation:tc-scrimIn .5s ease both;}
+@keyframes tc-scrimIn{from{background-color:transparent}to{background-color:#000}}
+
+.tc-stage{width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+/* no background here on purpose — the desk objects float directly on the
+   black screen; only they carry colour */
+.tc-canvas{flex:none;position:relative;width:1280px;height:832px;overflow:hidden;transform-origin:center center;}
+
+/* ---- paper ---- */
+.tc-paper-back{position:absolute;left:193.162px;top:192.225px;width:1002.68px;height:900px;background:#F2BD78;opacity:.9;border:2.3px solid #171310;}
+.tc-paper-front{position:absolute;left:234.988px;top:229.405px;width:921.347px;height:900px;background:#FCF8F2;border:2.3px solid #171310;}
+
+/* ---- writing surface: ruled notebook paper, text aligned to the lines ---- */
+.tc-writer-wrap{position:absolute;left:234.988px;top:229.405px;width:921.347px;height:600px;z-index:6;
+  display:flex;flex-direction:column;padding:30px 34px 18px 0;}
+.tc-paper-margin{position:absolute;left:62px;top:0;bottom:0;width:1.5px;background:#E8A090;z-index:8;pointer-events:none;}
+.tc-title-input{width:100%;flex-shrink:0;margin:0;padding:0 8px 10px 78px;border:none;outline:none;background:transparent;
+  font-family:'DM Serif Display',Georgia,serif;font-style:italic;font-size:22px;color:#1A1008;caret-color:#C24A2E;}
+.tc-title-input::placeholder{color:#B79A7C;opacity:.75;}
+.tc-writer-field{position:relative;flex:1;overflow:hidden;}
+.tc-rules{position:absolute;inset:0;z-index:0;pointer-events:none;
+  background-image:repeating-linear-gradient(to bottom,
+    transparent 0,transparent 37px,#C8D8F0 37px,#C8D8F0 38px);
+  background-repeat:repeat;background-position:0 0;}
+.tc-writer{position:absolute;inset:0;z-index:1;width:100%;height:100%;
+  border:none;outline:none;background:transparent;color:#1A1008;
+  font-family:Georgia,'Charter','Iowan Old Style',serif;font-size:19px;line-height:38px;
+  padding:0 30px 0 78px;caret-color:#C24A2E;letter-spacing:.005em;overflow-y:auto;
+  white-space:pre-wrap;overflow-wrap:break-word;}
+.tc-writer:empty:before{content:attr(data-placeholder);color:#B79A7C;font-style:italic;pointer-events:none;}
+.tc-writer::-webkit-scrollbar{width:8px;}
+.tc-writer::-webkit-scrollbar-thumb{background:rgba(58,24,16,.18);border-radius:8px;}
+.tc-writer::-webkit-scrollbar-thumb:hover{background:rgba(58,24,16,.32);}
+.tc-paper-meta{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-left:78px;
+  font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.04em;color:#B79A7C;
+  padding-top:8px;margin-top:6px;border-top:1px dashed #D9CBBA;user-select:none;}
+.tc-paper-meta .tc-date{text-transform:uppercase;}
+.tc-meta-left{display:flex;align-items:center;gap:14px;}
+.tc-meta-right{display:flex;align-items:center;gap:8px;}
+.tc-save-btn{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.04em;
+  display:inline-flex;align-items:center;gap:6px;
+  background:#1A1008;color:#FCF8F2;border:none;border-radius:3px;padding:7px 13px;cursor:pointer;
+  box-shadow:2px 2px 0 rgba(23,19,16,.35);transition:transform .15s ease,box-shadow .15s ease,opacity .15s ease;}
+.tc-save-btn:hover:not(:disabled){transform:translateY(-1px);box-shadow:3px 3px 0 rgba(23,19,16,.4);}
+.tc-save-btn:active:not(:disabled){transform:translateY(1px);box-shadow:1px 1px 0 rgba(23,19,16,.4);}
+.tc-save-btn:disabled{opacity:.4;cursor:default;}
+.tc-delete-btn{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.04em;
+  display:inline-flex;align-items:center;gap:6px;
+  background:transparent;color:#B79A7C;border:1.5px solid rgba(58,24,16,.25);border-radius:3px;padding:6.5px 12px;cursor:pointer;
+  transition:color .15s ease,border-color .15s ease,background .15s ease;}
+.tc-delete-btn:hover:not(:disabled){color:#C24A2E;border-color:#C24A2E;background:rgba(194,74,46,.08);}
+.tc-delete-btn:disabled{opacity:.4;cursor:default;}
+
+/* ---- discard-changes confirm — in-app styled, not the browser's native confirm() ---- */
+.tc-confirm-overlay{position:fixed;inset:0;z-index:300;display:flex;align-items:center;justify-content:center;
+  background:rgba(10,7,5,.55);animation:tc-confirmFadeIn .18s ease both;}
+.tc-confirm-card{width:min(360px,calc(100vw - 48px));background:#FCF8F2;border:2px solid #171310;border-radius:3px;
+  padding:22px 24px 20px;box-shadow:6px 6px 0 rgba(23,19,16,.35);animation:tc-confirmPopIn .18s cubic-bezier(.2,.9,.3,1.2) both;}
+.tc-confirm-title{margin:0 0 8px;font-family:'DM Serif Display',serif;font-size:19px;color:#1A1008;}
+.tc-confirm-body{margin:0 0 20px;font-family:Georgia,serif;font-size:13.5px;line-height:1.5;color:#6B5B4A;}
+.tc-confirm-actions{display:flex;justify-content:flex-end;gap:10px;}
+.tc-confirm-cancel{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.04em;
+  background:transparent;color:#3A2A1E;border:1.5px solid rgba(23,19,16,.3);border-radius:3px;padding:8px 14px;cursor:pointer;
+  transition:background .15s ease,border-color .15s ease;}
+.tc-confirm-cancel:hover{background:rgba(23,19,16,.06);border-color:rgba(23,19,16,.45);}
+.tc-confirm-discard{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.04em;
+  background:#C24A2E;color:#FCF8F2;border:2px solid #171310;border-radius:3px;padding:7.5px 14px;cursor:pointer;
+  box-shadow:2px 2px 0 rgba(23,19,16,.35);transition:transform .15s ease,box-shadow .15s ease;}
+.tc-confirm-discard:hover{transform:translateY(-1px);box-shadow:3px 3px 0 rgba(23,19,16,.4);}
+.tc-confirm-discard:active{transform:translateY(1px);box-shadow:1px 1px 0 rgba(23,19,16,.4);}
+@keyframes tc-confirmFadeIn{from{opacity:0}to{opacity:1}}
+@keyframes tc-confirmPopIn{from{opacity:0;transform:scale(.96) translateY(4px)}to{opacity:1;transform:none}}
+
+/* ---- lamp cord (interactive) ---- */
+/* pointer-events:none is critical here: an <svg> with no explicit pointer-events
+   still hit-tests across its ENTIRE box (1280x832, covering the whole scene)
+   even where nothing is painted — silently swallowing every click meant for
+   the writer/title beneath it. Re-enabled only on the knob, the one part
+   that's actually meant to be clickable/draggable. */
+.tc-cord-svg{position:absolute;left:0;top:0;z-index:2;pointer-events:none;}
+.tc-cord-group{transform-origin:103px 0px;}
+.tc-cord-svg:hover .tc-cord-group{animation:tc-swayCord 2.2s ease-in-out infinite;}
+.tc-cord-knob{cursor:grab;pointer-events:auto;}
+.tc-cord-knob:active{cursor:grabbing;}
+
+/* ---- music widget ---- */
+.tc-widget{position:absolute;left:820px;top:78px;width:385px;height:169px;z-index:4;
+  transition:transform .35s ease,filter .35s ease;cursor:default;}
+.tc-widget:hover{transform:translateY(-4px) scale(1.015);}
+
+/* ---- digital clock ---- */
+.tc-clock{position:absolute;left:24px;top:753px;width:145px;height:55px;z-index:4;}
+.tc-clock .tc-face{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-family:'JetBrains Mono',monospace;font-size:24px;letter-spacing:2px;
+  color:#CFA2FF;text-shadow:0 0 8px rgba(207,162,255,.55);}
+.tc-clock .tc-colon{animation:tc-blinkColon 1.6s step-start infinite;}
+
+/* ---- ambient lamp light ----
+   a sibling of .tc-canvas (not a descendant) so it is never scaled or
+   clipped by the canvas's own transform/overflow — it fills the true
+   browser viewport (position:fixed;inset:0) regardless of screen size. */
+.tc-lamp-light{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:9;}
+.thought-composer:not(.tc-lit) .tc-lamp-light{opacity:0;}
+.thought-composer.tc-lit .tc-lamp-light{opacity:1;transition:opacity .9s ease .05s;}
+
+/* ---- back out of the scene ---- */
+.tc-back-btn{position:absolute;left:26px;top:24px;z-index:40;opacity:0;visibility:hidden;
+  font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.05em;color:#D9CBBA;
+  background:#241B14;border:1px solid #171310;border-radius:3px;
+  padding:7px 13px 7px 11px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;
+  box-shadow:2px 3px 0 rgba(23,19,16,.35);
+  transition:opacity .5s ease,visibility .5s,background .15s ease,transform .15s ease;}
+.tc-back-btn:hover{background:#332619;transform:translateY(-1px);}
+.tc-back-btn:active{transform:translateY(1px);box-shadow:1px 1px 0 rgba(23,19,16,.4);}
+.tc-canvas.tc-lit .tc-back-btn{opacity:1;visibility:visible;transition-delay:.15s;}
+
+/* the clipboard is one physical object: hook + board + paper move together */
+.tc-clipboard-group{position:absolute;left:0;top:0;width:1280px;height:832px;}
+
+/* pieces are hidden until the scene assembles, then slide in while still dark */
+.tc-clipboard-group,.tc-cord-svg,.tc-widget,.tc-clock,.tc-lamp-light{opacity:0;}
+.thought-composer.tc-entered .tc-clipboard-group{animation:tc-slideUp .85s cubic-bezier(.16,.86,.34,1.02) .25s forwards;}
+.thought-composer.tc-entered .tc-cord-svg{animation:tc-dropIn .75s cubic-bezier(.34,.8,.3,1.04) .25s forwards;}
+.thought-composer.tc-entered .tc-widget{animation:tc-slideInRight .7s cubic-bezier(.2,.72,.3,1) .48s forwards;}
+.thought-composer.tc-entered .tc-clock{animation:tc-slideInLeft .7s cubic-bezier(.2,.72,.3,1) .56s forwards;}
+
+@keyframes tc-blinkColon{0%,49%{opacity:1}50%,100%{opacity:.18}}
+@keyframes tc-spinVinyl{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+@keyframes tc-swayCord{0%,100%{transform:rotate(0)}30%{transform:rotate(1.6deg)}70%{transform:rotate(-1.6deg)}}
+@keyframes tc-marquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+@keyframes tc-dropIn{from{opacity:0;transform:translateY(-55px)}to{opacity:1;transform:none}}
+@keyframes tc-slideUp{from{opacity:0;transform:translateY(95px)}to{opacity:1;transform:none}}
+@keyframes tc-slideInRight{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}
+@keyframes tc-slideInLeft{from{opacity:0;transform:translate(-34px,38px)}to{opacity:1;transform:none}}
+
+@media (prefers-reduced-motion: reduce){
+  .tc-cord-svg:hover .tc-cord-group,.tc-widget [style*="tc-spinVinyl"],[style*="tc-marquee"]{animation:none !important;}
+  .tc-clipboard-group,.tc-cord-svg,.tc-widget,.tc-clock,.tc-lamp-light{
+    opacity:1 !important;animation:none !important;}
+  .tc-back-btn{transition:none;}
+  .thought-composer{animation:none;background:#000;}
+  .tc-confirm-overlay,.tc-confirm-card{animation:none !important;}
+}

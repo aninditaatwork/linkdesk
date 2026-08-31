@@ -33,7 +33,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders })
 
   try {
-    const { content } = await req.json()
+    const { content, title } = await req.json()
 
     if (!content?.trim()) {
       return new Response(JSON.stringify({ error: "content is required" }), {
@@ -42,17 +42,19 @@ Deno.serve(async (req: Request) => {
       })
     }
     const trimmedContent = content.trim()
+    const trimmedTitle: string | null = typeof title === "string" && title.trim() ? title.trim() : null
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     )
 
-    const embedding = await generateEmbedding(trimmedContent)
+    // fold the title into what gets embedded so semantic search picks up on it too
+    const embedding = await generateEmbedding(trimmedTitle ? `${trimmedTitle}\n\n${trimmedContent}` : trimmedContent)
 
     const { data: thought, error } = await supabase
       .from("thoughts")
-      .insert({ content: trimmedContent, embedding })
+      .insert({ content: trimmedContent, title: trimmedTitle, embedding })
       .select()
       .single()
     if (error) throw error
