@@ -26,7 +26,7 @@
   display:flex;flex-direction:column;padding:30px 34px 18px 0;}
 .tc-paper-margin{position:absolute;left:62px;top:0;bottom:0;width:1.5px;background:#E8A090;z-index:8;pointer-events:none;}
 .tc-title-input{width:100%;flex-shrink:0;margin:0;padding:0 8px 10px 78px;border:none;outline:none;background:transparent;
-  font-family:'DM Serif Display',Georgia,serif;font-style:italic;font-size:22px;color:#1A1008;caret-color:#C24A2E;}
+  font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:22px;color:#1A1008;caret-color:#C24A2E;}
 .tc-title-input::placeholder{color:#B79A7C;opacity:.75;}
 .tc-writer-field{position:relative;flex:1;overflow:hidden;}
 .tc-rules{position:absolute;inset:0;z-index:0;pointer-events:none;
@@ -35,7 +35,7 @@
   background-repeat:repeat;background-position:0 0;}
 .tc-writer{position:absolute;inset:0;z-index:1;width:100%;height:100%;
   border:none;outline:none;background:transparent;color:#1A1008;
-  font-family:Georgia,'Charter','Iowan Old Style',serif;font-size:19px;line-height:38px;
+  font-family:'Manrope',sans-serif;font-size:19px;line-height:38px;
   padding:0 30px 0 78px;caret-color:#C24A2E;letter-spacing:.005em;overflow-y:auto;
   white-space:pre-wrap;overflow-wrap:break-word;}
 .tc-writer:empty:before{content:attr(data-placeholder);color:#B79A7C;font-style:italic;pointer-events:none;}
@@ -43,42 +43,20 @@
 .tc-writer::-webkit-scrollbar-thumb{background:rgba(58,24,16,.18);border-radius:8px;}
 .tc-writer::-webkit-scrollbar-thumb:hover{background:rgba(58,24,16,.32);}
 .tc-paper-meta{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-left:78px;
-  font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.04em;color:#B79A7C;
+  font-family:'Manrope',sans-serif;font-size:11px;letter-spacing:.02em;color:#B79A7C;
   padding-top:8px;margin-top:6px;border-top:1px dashed #D9CBBA;user-select:none;}
 .tc-paper-meta .tc-date{text-transform:uppercase;}
 .tc-meta-left{display:flex;align-items:center;gap:14px;}
 .tc-meta-right{display:flex;align-items:center;gap:8px;}
-.tc-save-btn{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.04em;
-  display:inline-flex;align-items:center;gap:6px;
-  background:#1A1008;color:#FCF8F2;border:none;border-radius:3px;padding:7px 13px;cursor:pointer;
-  box-shadow:2px 2px 0 rgba(23,19,16,.35);transition:transform .15s ease,box-shadow .15s ease,opacity .15s ease;}
-.tc-save-btn:hover:not(:disabled){transform:translateY(-1px);box-shadow:3px 3px 0 rgba(23,19,16,.4);}
-.tc-save-btn:active:not(:disabled){transform:translateY(1px);box-shadow:1px 1px 0 rgba(23,19,16,.4);}
-.tc-save-btn:disabled{opacity:.4;cursor:default;}
-.tc-delete-btn{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.04em;
-  display:inline-flex;align-items:center;gap:6px;
-  background:transparent;color:#B79A7C;border:1.5px solid rgba(58,24,16,.25);border-radius:3px;padding:6.5px 12px;cursor:pointer;
-  transition:color .15s ease,border-color .15s ease,background .15s ease;}
-.tc-delete-btn:hover:not(:disabled){color:#C24A2E;border-color:#C24A2E;background:rgba(194,74,46,.08);}
-.tc-delete-btn:disabled{opacity:.4;cursor:default;}
 
 /* ---- discard-changes confirm — in-app styled, not the browser's native confirm() ---- */
 .tc-confirm-overlay{position:fixed;inset:0;z-index:300;display:flex;align-items:center;justify-content:center;
   background:rgba(10,7,5,.55);animation:tc-confirmFadeIn .18s ease both;}
-.tc-confirm-card{width:min(360px,calc(100vw - 48px));background:#FCF8F2;border:2px solid #171310;border-radius:3px;
+.tc-confirm-card{width:min(360px,calc(100vw - 48px));background:#FCF8F2;border:2px solid #171310;border-radius:4px;
   padding:22px 24px 20px;box-shadow:6px 6px 0 rgba(23,19,16,.35);animation:tc-confirmPopIn .18s cubic-bezier(.2,.9,.3,1.2) both;}
-.tc-confirm-title{margin:0 0 8px;font-family:'DM Serif Display',serif;font-size:19px;color:#1A1008;}
-.tc-confirm-body{margin:0 0 20px;font-family:Georgia,serif;font-size:13.5px;line-height:1.5;color:#6B5B4A;}
+.tc-confirm-title{margin:0 0 8px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:19px;color:#1A1008;}
+.tc-confirm-body{margin:0 0 20px;font-family:'Manrope',sans-serif;font-size:13.5px;line-height:1.5;color:#6B5B4A;}
 .tc-confirm-actions{display:flex;justify-content:flex-end;gap:10px;}
-.tc-confirm-cancel{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.04em;
-  background:transparent;color:#3A2A1E;border:1.5px solid rgba(23,19,16,.3);border-radius:3px;padding:8px 14px;cursor:pointer;
-  transition:background .15s ease,border-color .15s ease;}
-.tc-confirm-cancel:hover{background:rgba(23,19,16,.06);border-color:rgba(23,19,16,.45);}
-.tc-confirm-discard{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.04em;
-  background:#C24A2E;color:#FCF8F2;border:2px solid #171310;border-radius:3px;padding:7.5px 14px;cursor:pointer;
-  box-shadow:2px 2px 0 rgba(23,19,16,.35);transition:transform .15s ease,box-shadow .15s ease;}
-.tc-confirm-discard:hover{transform:translateY(-1px);box-shadow:3px 3px 0 rgba(23,19,16,.4);}
-.tc-confirm-discard:active{transform:translateY(1px);box-shadow:1px 1px 0 rgba(23,19,16,.4);}
 @keyframes tc-confirmFadeIn{from{opacity:0}to{opacity:1}}
 @keyframes tc-confirmPopIn{from{opacity:0;transform:scale(.96) translateY(4px)}to{opacity:1;transform:none}}
 
@@ -115,14 +93,10 @@
 .thought-composer.tc-lit .tc-lamp-light{opacity:1;transition:opacity .9s ease .05s;}
 
 /* ---- back out of the scene ---- */
-.tc-back-btn{position:absolute;left:26px;top:24px;z-index:40;opacity:0;visibility:hidden;
-  font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.05em;color:#D9CBBA;
-  background:#241B14;border:1px solid #171310;border-radius:3px;
-  padding:7px 13px 7px 11px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;
-  box-shadow:2px 3px 0 rgba(23,19,16,.35);
-  transition:opacity .5s ease,visibility .5s,background .15s ease,transform .15s ease;}
-.tc-back-btn:hover{background:#332619;transform:translateY(-1px);}
-.tc-back-btn:active{transform:translateY(1px);box-shadow:1px 1px 0 rgba(23,19,16,.4);}
+.tc-back-btn{position:absolute;left:26px;top:24px;z-index:40;opacity:0;visibility:hidden;cursor:pointer;
+  transition:opacity .5s ease,visibility .5s,transform .15s ease,box-shadow .15s ease;}
+.tc-back-btn:hover{transform:translateY(-1px);}
+.tc-back-btn:active{transform:translateY(1px);box-shadow:1px 1px 0 #0F0D0A;}
 .tc-canvas.tc-lit .tc-back-btn{opacity:1;visibility:visible;transition-delay:.15s;}
 
 /* the clipboard is one physical object: hook + board + paper move together */

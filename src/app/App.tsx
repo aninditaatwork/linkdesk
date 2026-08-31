@@ -179,7 +179,7 @@ function getThoughtRotation(seed: string): number {
 // Maps a value proportionally from [inMin, inMax] onto [outMin, outMax].
 // Used to scale a category stack's thickness/stagger relative to the
 // smallest and largest categories in the current collection, rather than
-// fixed thresholds — see CategoryStack / VisualCategoryStack.
+// fixed thresholds — see CategoryStack (shared by both Links and Images).
 function mapRange(val: number, inMin: number, inMax: number, outMin: number, outMax: number): number {
   if (inMax === inMin) return (outMin + outMax) / 2
   return outMin + ((val - inMin) / (inMax - inMin)) * (outMax - outMin)
@@ -393,7 +393,7 @@ function PaperCardContent({ link }: { link: SavedLink }) {
 
   return (
     <div
-      className="bg-card rounded-sm overflow-hidden flex flex-col h-full"
+      className="bg-card rounded-lg overflow-hidden flex flex-col h-full"
       style={{ border: "2px solid #0F0D0A", boxShadow: "4px 4px 0 #0F0D0A" }}
     >
       {link.image_url && (
@@ -429,10 +429,10 @@ function PaperCardContent({ link }: { link: SavedLink }) {
         {(vibes.length > 0 || tags.length > 0) && (
           <div className="flex flex-wrap gap-1 pt-1 mt-auto">
             {vibes.slice(0, 2).map(v => (
-              <span key={v} className="text-xs px-2 py-0.5 rounded-sm bg-accent" style={{ border: "1px solid #0F0D0A" }}>{v}</span>
+              <span key={v} className="text-xs px-2 py-0.5 rounded-lg bg-accent" style={{ border: "1px solid #0F0D0A" }}>{v}</span>
             ))}
             {tags.slice(0, 2).map(t => (
-              <span key={t} className="text-xs px-2 py-0.5 rounded-sm bg-muted opacity-70">#{t}</span>
+              <span key={t} className="text-xs px-2 py-0.5 rounded-lg bg-muted opacity-70">#{t}</span>
             ))}
           </div>
         )}
@@ -462,27 +462,23 @@ function PaperCard({ link, onClick, index }: { link: SavedLink; onClick: () => v
 
 // ─── Visual Card (individual image) ────────────────────────────────────────
 
-// Same split as PaperCardContent — the polaroid's visual design, reusable as
-// the front sheet of an image category stack (see VisualCategoryStack).
-function VisualCardContent({ visual, placeholderColor }: { visual: SavedVisual; placeholderColor?: string }) {
+// Same split as PaperCardContent — the polaroid's visual design, split out
+// from VisualCard's click/hover/entrance behaviour.
+function VisualCardContent({ visual }: { visual: SavedVisual }) {
   const vibes = Array.isArray(visual.vibe) ? visual.vibe : []
 
   return (
     <div
-      className="rounded-sm overflow-hidden h-full flex flex-col"
+      className="rounded-lg overflow-hidden h-full flex flex-col"
       style={{ background: "#FEFCF6", border: "2px solid #0F0D0A", boxShadow: "4px 4px 0 #0F0D0A", padding: "10px 10px 14px" }}
     >
       <div className="overflow-hidden bg-muted shrink-0" style={{ border: "1px solid rgba(15,13,10,0.15)" }}>
-        {visual.public_url ? (
-          <img
-            src={visual.public_url}
-            alt={visual.title}
-            className="w-full h-auto object-cover block"
-            onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = "none" }}
-          />
-        ) : (
-          <div className="w-full aspect-square" style={{ background: placeholderColor || "#E8E2D8" }} />
-        )}
+        <img
+          src={visual.public_url}
+          alt={visual.title}
+          className="w-full h-auto object-cover block"
+          onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = "none" }}
+        />
       </div>
       <div className="pt-3 flex flex-col gap-1.5 items-center text-center overflow-hidden">
         <p className="text-sm font-semibold leading-snug line-clamp-2" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
@@ -491,7 +487,7 @@ function VisualCardContent({ visual, placeholderColor }: { visual: SavedVisual; 
         {vibes.length > 0 && (
           <div className="flex flex-wrap gap-1 justify-center">
             {vibes.slice(0, 3).map(v => (
-              <span key={v} className="text-xs px-2 py-0.5 rounded-sm bg-accent" style={{ border: "1px solid #0F0D0A" }}>{v}</span>
+              <span key={v} className="text-xs px-2 py-0.5 rounded-lg bg-accent" style={{ border: "1px solid #0F0D0A" }}>{v}</span>
             ))}
           </div>
         )}
@@ -577,7 +573,7 @@ function VisualUploadZone({ onUploaded }: { onUploaded: (visual: SavedVisual) =>
         onDragLeave={() => setDragActive(false)}
         onDrop={e => { e.preventDefault(); setDragActive(false); handleFiles(e.dataTransfer.files) }}
         onClick={() => inputRef.current?.click()}
-        className="cursor-pointer rounded-sm flex flex-col items-center justify-center gap-2 py-10 px-6 text-center transition-colors"
+        className="cursor-pointer rounded-lg flex flex-col items-center justify-center gap-2 py-10 px-6 text-center transition-colors"
         style={{
           border: `2px dashed ${dragActive ? "#0F0D0A" : "rgba(15,13,10,0.3)"}`,
           background: dragActive ? "#FFE1A1" : "#FCF9F5",
@@ -594,7 +590,7 @@ function VisualUploadZone({ onUploaded }: { onUploaded: (visual: SavedVisual) =>
           {uploading.map(u => (
             <div
               key={u.id}
-              className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-sm"
+              className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg"
               style={{ border: "1.5px solid #0F0D0A", background: u.status === "error" ? "#FFF0EE" : "#FFF8F0" }}
             >
               {u.status === "error" ? (
@@ -610,6 +606,64 @@ function VisualUploadZone({ onUploaded }: { onUploaded: (visual: SavedVisual) =>
         </div>
       )}
     </div>
+  )
+}
+
+// ─── Image Upload Panel ─────────────────────────────────────────────────────
+// The exact same slide-in-drawer shell as LinkDetailPanel/VisualDetailPanel —
+// same notched left edge, same backdrop/spring-in behaviour — just holding
+// the upload zone instead of a link's fields.
+
+function ImageUploadPanel({ onClose, onUploaded }: {
+  onClose: () => void
+  onUploaded: (visual: SavedVisual) => void
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex bg-black/20"
+    >
+      <div className="flex-1" onClick={onClose} />
+      <motion.div
+        initial={{ x: "100%" }}
+        animate={{ x: 0 }}
+        exit={{ x: "100%" }}
+        transition={{ type: "spring", stiffness: 380, damping: 32 }}
+        className="w-full max-w-md flex flex-col relative"
+      >
+        {/* border SVG: sibling of the clipped panel, so it is NOT clipped — draws the full continuous notched stroke */}
+        <svg
+          style={{ position: "absolute", left: 0, top: 0, width: 14, height: "100%", pointerEvents: "none", zIndex: 20 }}
+        >
+          <defs>
+            <pattern id="notchBorderImageUpload" x="0" y="0" width="14" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 1 0 L 1 11 A 9 9 0 0 1 1 29 L 1 40" fill="none" stroke="#0F0D0A" strokeWidth="2" />
+            </pattern>
+          </defs>
+          <rect width="14" height="100%" fill="url(#notchBorderImageUpload)" />
+        </svg>
+
+        {/* panel: clip-path cuts everything inside to the notched shape — no child background can overpaint the holes */}
+        <div
+          className="flex flex-col overflow-y-auto flex-1"
+          style={{ background: "#FCF9F5", clipPath: PANEL_NOTCH_CLIP }}
+        >
+          <div className="flex items-center justify-between px-6 py-4 sticky top-0 z-10" style={{ background: "#FCF9F5", borderBottom: "2px solid #0F0D0A" }}>
+            <h2 className="text-xl font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Add images</h2>
+            <button onClick={onClose} className="opacity-40 hover:opacity-100">
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="px-6 py-6">
+            <p className="text-sm text-muted-foreground mb-4">Drop images here, or click to select — each one is characterised and categorised automatically.</p>
+            <VisualUploadZone onUploaded={onUploaded} />
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
   )
 }
 
@@ -650,7 +704,7 @@ function MentionDropdown({ tags, linksList, visualsList, categories, onSelect }:
 
   return (
     <div
-      className="absolute z-30 mt-1 w-full max-h-72 overflow-y-auto rounded-sm"
+      className="absolute z-30 mt-1 w-full max-h-72 overflow-y-auto rounded-lg"
       style={{ background: "#FFFFFF", border: "1.5px solid #0F0D0A", boxShadow: "3px 3px 0 #0F0D0A" }}
     >
       {!hasAny && <p className="text-xs text-muted-foreground px-3 py-3 opacity-50">No matches</p>}
@@ -699,7 +753,7 @@ function MentionDropdown({ tags, linksList, visualsList, categories, onSelect }:
               onClick={() => onSelect("image", v.slug, v.slug)}
               className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent/40 flex items-center gap-2"
             >
-              {v.public_url && <img src={v.public_url} alt="" className="w-5 h-5 rounded-sm object-cover shrink-0" />}
+              {v.public_url && <img src={v.public_url} alt="" className="w-5 h-5 rounded-lg object-cover shrink-0" />}
               <span className="truncate">{v.slug || v.title}</span>
             </button>
           ))}
@@ -1089,8 +1143,13 @@ function ThoughtComposerScene({ thought, links, visuals, onSaved, onDeleted, onC
     <div className={`thought-composer${entered ? " tc-entered" : ""}${lit ? " tc-lit" : ""}`}>
       <div className="tc-stage">
         <div ref={canvasRef} className={`tc-canvas${lit ? " tc-lit" : ""}`}>
-          <button className="tc-back-btn" onClick={() => requestClose()}>
-            <ArrowLeft size={12} /> back
+          <button
+            className="tc-back-btn inline-flex items-center justify-center p-2.5 rounded-lg"
+            style={{ border: "1.5px solid #0F0D0A", background: "#FCF9F5", boxShadow: "2px 2px 0 #0F0D0A" }}
+            onClick={() => requestClose()}
+            aria-label="Back"
+          >
+            <ArrowLeft size={14} />
           </button>
 
           {/* clipboard: hook + board + paper, one physical object */}
@@ -1131,18 +1190,25 @@ function ThoughtComposerScene({ thought, links, visuals, onSaved, onDeleted, onC
                 <div className="tc-meta-right">
                   {isEditing && (
                     <button
-                      className="tc-delete-btn"
                       onClick={handleDelete}
                       disabled={deleting}
+                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors"
+                      style={{
+                        border: "1.5px solid",
+                        borderColor: confirmDelete ? "#E03D2F" : "rgba(15,13,10,0.3)",
+                        color: confirmDelete ? "#E03D2F" : "#6B5B4A",
+                        background: confirmDelete ? "#FFF0EE" : "transparent",
+                      }}
                     >
                       {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
                       {confirmDelete ? "Confirm?" : "Delete"}
                     </button>
                   )}
                   <button
-                    className="tc-save-btn"
                     onClick={handleSave}
                     disabled={saving || wordCount === 0}
+                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg disabled:opacity-40"
+                    style={{ background: "#0F0D0A", color: "#FFEADA", border: "1.5px solid #0F0D0A" }}
                   >
                     {saving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
                     {saving ? "Saving…" : isEditing ? "Update · ⌘⏎" : "Save · ⌘⏎"}
@@ -1245,8 +1311,20 @@ function ThoughtComposerScene({ thought, links, visuals, onSaved, onDeleted, onC
               {isEditing ? "Your edits haven't been saved." : "What you've written won't be saved."}
             </p>
             <div className="tc-confirm-actions">
-              <button className="tc-confirm-cancel" onClick={() => setConfirmingClose(false)}>Keep writing</button>
-              <button className="tc-confirm-discard" onClick={() => { setConfirmingClose(false); requestClose(true) }}>Discard</button>
+              <button
+                onClick={() => setConfirmingClose(false)}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg"
+                style={{ border: "1.5px solid rgba(15,13,10,0.3)", color: "#6B5B4A" }}
+              >
+                Keep writing
+              </button>
+              <button
+                onClick={() => { setConfirmingClose(false); requestClose(true) }}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors"
+                style={{ border: "1.5px solid #E03D2F", color: "#E03D2F", background: "#FFF0EE" }}
+              >
+                Discard
+              </button>
             </div>
           </div>
         </div>
@@ -1276,12 +1354,12 @@ function ThoughtCard({ thought, links, visuals, onClick, onLinkClick, onVisualCl
   return (
     <ThoughtPage rotation={rotation} className="mb-6 cursor-pointer" onClick={onClick}>
       {thought.title && (
-        <p className="mb-1.5" style={{ margin: "0 0 6px", fontFamily: "'DM Serif Display', serif", fontSize: "1.05rem", fontWeight: 600 }}>
+        <p className="mb-1.5" style={{ margin: "0 0 6px", fontFamily: "'Space Grotesk', sans-serif", fontSize: "1.05rem", fontWeight: 600 }}>
           {thought.title}
         </p>
       )}
       <p className="whitespace-pre-wrap" style={{ margin: 0 }}>{rendered}</p>
-      <p className="text-xs opacity-40 mt-3" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+      <p className="text-xs opacity-40 mt-3" style={{ fontFamily: "'Manrope', sans-serif" }}>
         {new Date(thought.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
       </p>
     </ThoughtPage>
@@ -1305,12 +1383,12 @@ function ThoughtSnippetCard({ thought, onClick, index }: { thought: SavedThought
     >
       <ThoughtPage rotation={rotation}>
         {thought.title && (
-          <p style={{ margin: "0 0 6px", fontFamily: "'DM Serif Display', serif", fontSize: "1.05rem", fontWeight: 600 }}>
+          <p style={{ margin: "0 0 6px", fontFamily: "'Space Grotesk', sans-serif", fontSize: "1.05rem", fontWeight: 600 }}>
             {thought.title}
           </p>
         )}
         <p style={{ margin: 0 }}>{snippet}</p>
-        <p className="text-xs opacity-40 mt-2" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+        <p className="text-xs opacity-40 mt-2" style={{ fontFamily: "'Manrope', sans-serif" }}>
           {new Date(thought.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
         </p>
       </ThoughtPage>
@@ -1374,9 +1452,15 @@ const STACK_CARD_W = 260
 // per-category stagger below is capped to stay safely inside it.
 const STACK_PADDING = 11
 
-function CategoryStack({ category, links, paletteIndex, minCount, maxCount, onClick }: {
+function CategoryStack({ category, count, unitLabel, tags, paletteIndex, minCount, maxCount, onClick }: {
   category: string
-  links: SavedLink[]
+  count: number
+  // singular form — "link" or "image"; pluralised automatically
+  unitLabel: string
+  // real tags/vibes pulled from the category's items, so the front card's
+  // tag row isn't empty — same component either way, links and images just
+  // hand it different words
+  tags: string[]
   paletteIndex: number
   minCount: number
   maxCount: number
@@ -1388,20 +1472,18 @@ function CategoryStack({ category, links, paletteIndex, minCount, maxCount, onCl
   // 38.5 title + 8 gap + 39 summary + 8 gap + 46 for two pill rows).
   const cardH = 180
 
-  const layerCount = Math.round(mapRange(links.length, minCount, maxCount, 1, 5))
-  const stagger = mapRange(links.length, minCount, maxCount, 1.5, 6)
+  const layerCount = Math.round(mapRange(count, minCount, maxCount, 1, 5))
+  const stagger = mapRange(count, minCount, maxCount, 1.5, 6)
   const backLayers = Array.from({ length: Math.max(0, layerCount - 1) }, (_, k) => layerCount - 1 - k)
   const tilt = getStackTilt(category)
 
   // Synthetic "link" so the front sheet is the exact PaperCard component —
   // same border/shadow/title/summary/tags layout — just reading the category
-  // instead of a single saved link. Tags are pulled from the category's real
-  // links so the card isn't left with an empty tag row.
-  const categoryTags = [...new Set(links.flatMap(l => Array.isArray(l.tags) ? l.tags : []))].slice(0, 2)
+  // instead of a single saved link/image.
   const categoryCard: SavedLink = {
     id: category, url: "", title: category, slug: "", description: "",
-    image_url: "", user_note: "", summary: `${links.length} ${links.length === 1 ? "link" : "links"}`,
-    category, vibe: "", tags: categoryTags, platform: "", created_at: "",
+    image_url: "", user_note: "", summary: `${count} ${count === 1 ? unitLabel : unitLabel + "s"}`,
+    category, vibe: "", tags: tags.slice(0, 2), platform: "", created_at: "",
   }
 
   return (
@@ -1413,12 +1495,12 @@ function CategoryStack({ category, links, paletteIndex, minCount, maxCount, onCl
       style={{ width: STACK_CARD_W + STACK_PADDING * 2, height: cardH + STACK_PADDING * 2, rotate: tilt }}
     >
       {/* Every layer — back and front — is built from the same card frame
-          (rounded-sm, 2px ink border, 4px shadow) as PaperCardContent, so the
+          (rounded-lg, 2px ink border, 4px shadow) as PaperCardContent, so the
           whole pile reads as one family of card, just stacked and staggered. */}
       {backLayers.map(i => (
         <div
           key={i}
-          className="absolute rounded-sm"
+          className="absolute rounded-lg"
           style={{
             left: STACK_PADDING - i * stagger * 0.4,
             top: STACK_PADDING + i * stagger * 0.3,
@@ -1432,7 +1514,7 @@ function CategoryStack({ category, links, paletteIndex, minCount, maxCount, onCl
       ))}
       {/* Front sheet — the exact PaperCard component */}
       <div
-        className="absolute overflow-hidden rounded-sm"
+        className="absolute overflow-hidden rounded-lg"
         style={{ left: STACK_PADDING, top: STACK_PADDING, width: STACK_CARD_W, height: cardH, transform: "rotate(1deg)" }}
       >
         <PaperCardContent link={categoryCard} />
@@ -1555,7 +1637,7 @@ function LinkDetailPanel({ link, categories, onClose, onSave, onDelete }: {
             <button
               onClick={handleDelete}
               disabled={deleting}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-sm transition-colors"
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors"
               style={{
                 border: "1.5px solid",
                 borderColor: confirmDelete ? "#E03D2F" : "rgba(15,13,10,0.3)",
@@ -1567,11 +1649,11 @@ function LinkDetailPanel({ link, categories, onClose, onSave, onDelete }: {
               {confirmDelete ? "Confirm?" : "Delete"}
             </button>
             {editing ? (
-              <button onClick={handleSave} disabled={saving} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-sm" style={{ background: "#0F0D0A", color: "#FFEADA", border: "1.5px solid #0F0D0A" }}>
+              <button onClick={handleSave} disabled={saving} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg" style={{ background: "#0F0D0A", color: "#FFEADA", border: "1.5px solid #0F0D0A" }}>
                 {saving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Save
               </button>
             ) : (
-              <button onClick={() => setEditing(true)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-sm" style={{ border: "1.5px solid rgba(15,13,10,0.3)", color: "#6B5B4A" }}>
+              <button onClick={() => setEditing(true)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg" style={{ border: "1.5px solid rgba(15,13,10,0.3)", color: "#6B5B4A" }}>
                 <Pencil size={12} /> Edit
               </button>
             )}
@@ -1595,7 +1677,7 @@ function LinkDetailPanel({ link, categories, onClose, onSave, onDelete }: {
             <div key={field}>
               <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1.5">{label}</p>
               {editing ? (
-                <input className="w-full rounded-sm px-3 py-2 text-sm" style={{ border: "1.5px solid #0F0D0A", background: "#FFF8F0" }}
+                <input className="w-full rounded-lg px-3 py-2 text-sm" style={{ border: "1.5px solid #0F0D0A", background: "#FFF8F0" }}
                   value={draft[field] as string} onChange={e => setDraft({ ...draft, [field]: e.target.value })} />
               ) : (
                 <p className="text-sm font-medium">{draft[field] as string || "—"}</p>
@@ -1611,19 +1693,19 @@ function LinkDetailPanel({ link, categories, onClose, onSave, onDelete }: {
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1.5">Category</p>
             {editing ? (
-              <select className="w-full rounded-sm px-3 py-2 text-sm" style={{ border: "1.5px solid #0F0D0A", background: "#FFF8F0" }}
+              <select className="w-full rounded-lg px-3 py-2 text-sm" style={{ border: "1.5px solid #0F0D0A", background: "#FFF8F0" }}
                 value={draft.category} onChange={e => setDraft({ ...draft, category: e.target.value })}>
                 {categories.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             ) : (
-              <span className="text-sm px-3 py-1 rounded-sm inline-block" style={{ background: "#FFE1A1", border: "1.5px solid #0F0D0A" }}>{draft.category}</span>
+              <span className="text-sm px-3 py-1 rounded-lg inline-block" style={{ background: "#FFE1A1", border: "1.5px solid #0F0D0A" }}>{draft.category}</span>
             )}
           </div>
 
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1.5">Summary</p>
             {editing ? (
-              <textarea rows={4} className="w-full rounded-sm px-3 py-2 text-sm resize-none" style={{ border: "1.5px solid #0F0D0A", background: "#FFF8F0" }}
+              <textarea rows={4} className="w-full rounded-lg px-3 py-2 text-sm resize-none" style={{ border: "1.5px solid #0F0D0A", background: "#FFF8F0" }}
                 value={draft.summary} onChange={e => setDraft({ ...draft, summary: e.target.value })} />
             ) : (
               <>
@@ -1639,12 +1721,12 @@ function LinkDetailPanel({ link, categories, onClose, onSave, onDelete }: {
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1.5">Vibe</p>
             {editing ? (
-              <input className="w-full rounded-sm px-3 py-2 text-sm" style={{ border: "1.5px solid #0F0D0A", background: "#FFF8F0" }}
+              <input className="w-full rounded-lg px-3 py-2 text-sm" style={{ border: "1.5px solid #0F0D0A", background: "#FFF8F0" }}
                 placeholder="minimal, dark, editorial..." value={draft.vibe} onChange={e => setDraft({ ...draft, vibe: e.target.value })} />
             ) : (
               <div className="flex flex-wrap gap-1.5">
                 {vibes.length > 0 ? vibes.map(v => (
-                  <span key={v} className="text-xs px-2.5 py-1 rounded-sm" style={{ background: "#FFE1A1", border: "1px solid #0F0D0A" }}>{v}</span>
+                  <span key={v} className="text-xs px-2.5 py-1 rounded-lg" style={{ background: "#FFE1A1", border: "1px solid #0F0D0A" }}>{v}</span>
                 )) : <span className="text-xs text-muted-foreground opacity-50">—</span>}
               </div>
             )}
@@ -1653,12 +1735,12 @@ function LinkDetailPanel({ link, categories, onClose, onSave, onDelete }: {
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1.5">Tags</p>
             {editing ? (
-              <input className="w-full rounded-sm px-3 py-2 text-sm" style={{ border: "1.5px solid #0F0D0A", background: "#FFF8F0" }}
+              <input className="w-full rounded-lg px-3 py-2 text-sm" style={{ border: "1.5px solid #0F0D0A", background: "#FFF8F0" }}
                 placeholder="design, tools, inspo..." value={tagsInput} onChange={e => setTagsInput(e.target.value)} />
             ) : (
               <div className="flex flex-wrap gap-1.5">
                 {tags.length > 0 ? tags.map(t => (
-                  <span key={t} className="text-xs px-2.5 py-1 rounded-sm" style={{ background: "#FFDEB3", border: "1px solid rgba(15,13,10,0.4)" }}>#{t}</span>
+                  <span key={t} className="text-xs px-2.5 py-1 rounded-lg" style={{ background: "#FFDEB3", border: "1px solid rgba(15,13,10,0.4)" }}>#{t}</span>
                 )) : <span className="text-xs text-muted-foreground opacity-50">—</span>}
               </div>
             )}
@@ -1667,7 +1749,7 @@ function LinkDetailPanel({ link, categories, onClose, onSave, onDelete }: {
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1.5">Your note</p>
             {editing ? (
-              <input className="w-full rounded-sm px-3 py-2 text-sm" style={{ border: "1.5px solid #0F0D0A", background: "#FFF8F0" }}
+              <input className="w-full rounded-lg px-3 py-2 text-sm" style={{ border: "1.5px solid #0F0D0A", background: "#FFF8F0" }}
                 value={draft.user_note} onChange={e => setDraft({ ...draft, user_note: e.target.value })} />
             ) : (
               <p className="text-sm text-muted-foreground italic">{draft.user_note ? `"${draft.user_note}"` : "—"}</p>
@@ -1766,7 +1848,7 @@ function VisualDetailPanel({ visual, moodboards, onClose, onSave }: {
               <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1.5">Vibe</p>
               <div className="flex flex-wrap gap-1.5">
                 {vibes.length > 0 ? vibes.map(v => (
-                  <span key={v} className="text-xs px-2.5 py-1 rounded-sm" style={{ background: "#FFE1A1", border: "1px solid #0F0D0A" }}>{v}</span>
+                  <span key={v} className="text-xs px-2.5 py-1 rounded-lg" style={{ background: "#FFE1A1", border: "1px solid #0F0D0A" }}>{v}</span>
                 )) : <span className="text-xs text-muted-foreground opacity-50">—</span>}
               </div>
             </div>
@@ -1775,7 +1857,7 @@ function VisualDetailPanel({ visual, moodboards, onClose, onSave }: {
               <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1.5">Tags</p>
               <div className="flex flex-wrap gap-1.5">
                 {tags.length > 0 ? tags.map(t => (
-                  <span key={t} className="text-xs px-2.5 py-1 rounded-sm" style={{ background: "#FFDEB3", border: "1px solid rgba(15,13,10,0.4)" }}>#{t}</span>
+                  <span key={t} className="text-xs px-2.5 py-1 rounded-lg" style={{ background: "#FFDEB3", border: "1px solid rgba(15,13,10,0.4)" }}>#{t}</span>
                 )) : <span className="text-xs text-muted-foreground opacity-50">—</span>}
               </div>
             </div>
@@ -1783,7 +1865,7 @@ function VisualDetailPanel({ visual, moodboards, onClose, onSave }: {
             <div>
               <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1.5">Your note</p>
               <input
-                className="w-full rounded-sm px-3 py-2 text-sm"
+                className="w-full rounded-lg px-3 py-2 text-sm"
                 style={{ border: "1.5px solid #0F0D0A", background: "#FFF8F0" }}
                 placeholder="Add a note..."
                 value={note}
@@ -1811,9 +1893,12 @@ function VisualDetailPanel({ visual, moodboards, onClose, onSave }: {
   )
 }
 
-// ─── Import View ───────────────────────────────────────────────────────────
+// ─── Import Panel ────────────────────────────────────────────────────────
+// The exact same slide-in-drawer shell as LinkDetailPanel/VisualDetailPanel —
+// same notched left edge, same backdrop/spring-in — instead of the old
+// full-page paste/review/processing/done flow.
 
-function ImportView({ onImportDone, onCancel }: { onImportDone: () => void; onCancel: () => void }) {
+function ImportPanel({ onImportDone, onClose }: { onImportDone: () => void; onClose: () => void }) {
   const [step, setStep] = useState<"paste" | "review" | "processing" | "done">("paste")
   const [rawText, setRawText] = useState("")
   const [parsedLinks, setParsedLinks] = useState<ParsedLink[]>([])
@@ -1876,104 +1961,136 @@ function ImportView({ onImportDone, onCancel }: { onImportDone: () => void; onCa
     }
   }
 
-  const paperStyle = {
-    background: "#FCF9F5",
-    border: "2px solid #0F0D0A",
-    boxShadow: "5px 5px 0 #0F0D0A",
-  }
-
-  if (step === "paste") return (
-    <div className="max-w-xl mx-auto py-12 px-4">
-      <div className="rounded-sm p-8" style={paperStyle}>
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-semibold" style={{ fontFamily: "'DM Serif Display', serif" }}>Drop your links</h2>
-          <button onClick={onCancel} className="opacity-40 hover:opacity-100"><X size={18} /></button>
-        </div>
-        <p className="text-sm text-muted-foreground mb-4">Paste any text with links — URLs will be extracted automatically.</p>
-        <textarea
-          className="w-full h-44 rounded-sm p-4 text-sm resize-none focus:outline-none"
-          style={{ border: "1.5px solid #0F0D0A", background: "#FFF8F0" }}
-          placeholder={"https://x.com/someone/status/...\nhttps://some-tool.com\n\nOr paste a whole block of text with links in it."}
-          value={rawText}
-          onChange={e => setRawText(e.target.value)}
-        />
-        {error && <p className="text-destructive text-sm mt-2">{error}</p>}
-        <button
-          onClick={handleParse}
-          disabled={!rawText.trim()}
-          className="mt-4 flex items-center gap-2 px-5 py-2.5 rounded-sm text-sm font-semibold disabled:opacity-40"
-          style={{ background: "#0F0D0A", color: "#FFEADA", border: "2px solid #0F0D0A" }}
-        >
-          Parse links <ArrowRight size={15} />
-        </button>
-      </div>
-    </div>
-  )
-
-  if (step === "review") return (
-    <div className="max-w-xl mx-auto py-12 px-4">
-      <div className="rounded-sm p-8" style={paperStyle}>
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-xl font-semibold" style={{ fontFamily: "'DM Serif Display', serif" }}>Review {parsedLinks.length} links</h2>
-          <button onClick={() => setStep("paste")} className="text-sm text-muted-foreground hover:text-foreground">← back</button>
-        </div>
-        <p className="text-sm text-muted-foreground mb-5">Add a note for social links — helps Claude understand what they're about.</p>
-        <div className="space-y-2.5 max-h-[50vh] overflow-y-auto pr-1">
-          {parsedLinks.map((link, i) => (
-            <div key={link.url} className="rounded-sm p-3" style={{ background: "#FFF8F0", border: "1.5px solid #0F0D0A" }}>
-              <div className="flex items-center justify-between gap-2 mb-1.5">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-xs px-2 py-0.5 rounded-sm font-medium" style={{ background: "#FFE1A1", border: "1px solid #0F0D0A" }}>{link.platform}</span>
-                  <span className="text-xs text-muted-foreground truncate opacity-60">{link.url}</span>
-                </div>
-                <button onClick={() => setParsedLinks(prev => prev.filter((_, idx) => idx !== i))} className="shrink-0 opacity-40 hover:opacity-100"><X size={13} /></button>
-              </div>
-              {isSocialPlatform(link.platform) && (
-                <input type="text" placeholder="What is this about?"
-                  value={link.note}
-                  onChange={e => setParsedLinks(prev => prev.map((l, idx) => idx === i ? { ...l, note: e.target.value } : l))}
-                  className="w-full text-xs rounded-sm px-3 py-1.5 focus:outline-none"
-                  style={{ border: "1px solid rgba(15,13,10,0.3)", background: "#FCF9F5" }}
-                />
-              )}
-            </div>
-          ))}
-        </div>
-        {error && <p className="text-destructive text-sm mt-3">{error}</p>}
-        <button
-          onClick={handleImport}
-          className="mt-5 flex items-center gap-2 px-5 py-2.5 rounded-sm text-sm font-semibold"
-          style={{ background: "#0F0D0A", color: "#FFEADA", border: "2px solid #0F0D0A" }}
-        >
-          Characterise & save <ArrowRight size={15} />
-        </button>
-      </div>
-    </div>
-  )
-
-  if (step === "processing") return (
-    <div className="max-w-sm mx-auto py-24 px-4 text-center">
-      <Loader2 size={28} className="animate-spin mx-auto mb-5 opacity-40" />
-      <p className="text-sm font-medium mb-5">{status}</p>
-      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "#FFDEB3", border: "1px solid #0F0D0A" }}>
-        <motion.div className="h-full rounded-full" style={{ background: "#0F0D0A" }} animate={{ width: `${progress}%` }} transition={{ duration: 0.5 }} />
-      </div>
-    </div>
-  )
+  const stepTitle = step === "paste" ? "Drop your links"
+    : step === "review" ? `Review ${parsedLinks.length} links`
+    : step === "processing" ? "Adding links"
+    : "Done"
 
   return (
-    <div className="max-w-sm mx-auto py-24 px-4 text-center">
-      <div className="w-14 h-14 rounded-sm flex items-center justify-center mx-auto mb-5" style={{ background: "#FFE1A1", border: "2px solid #0F0D0A", boxShadow: "3px 3px 0 #0F0D0A" }}>
-        <Check size={22} />
-      </div>
-      <p className="text-lg font-semibold mb-1" style={{ fontFamily: "'DM Serif Display', serif" }}>Done</p>
-      <p className="text-sm text-muted-foreground mb-6">
-        {importedCount} saved{skippedCount > 0 && `, ${skippedCount} duplicate${skippedCount !== 1 ? "s" : ""} skipped`}.
-      </p>
-      <button onClick={onImportDone} className="px-5 py-2.5 rounded-sm text-sm font-semibold" style={{ background: "#0F0D0A", color: "#FFEADA", border: "2px solid #0F0D0A" }}>
-        Back to desk
-      </button>
-    </div>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex bg-black/20"
+    >
+      <div className="flex-1" onClick={onClose} />
+      <motion.div
+        initial={{ x: "100%" }}
+        animate={{ x: 0 }}
+        exit={{ x: "100%" }}
+        transition={{ type: "spring", stiffness: 380, damping: 32 }}
+        className="w-full max-w-md flex flex-col relative"
+      >
+        {/* border SVG: sibling of the clipped panel, so it is NOT clipped — draws the full continuous notched stroke */}
+        <svg
+          style={{ position: "absolute", left: 0, top: 0, width: 14, height: "100%", pointerEvents: "none", zIndex: 20 }}
+        >
+          <defs>
+            <pattern id="notchBorderImport" x="0" y="0" width="14" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 1 0 L 1 11 A 9 9 0 0 1 1 29 L 1 40" fill="none" stroke="#0F0D0A" strokeWidth="2" />
+            </pattern>
+          </defs>
+          <rect width="14" height="100%" fill="url(#notchBorderImport)" />
+        </svg>
+
+        {/* panel: clip-path cuts everything inside to the notched shape — no child background can overpaint the holes */}
+        <div
+          className="flex flex-col overflow-y-auto flex-1"
+          style={{ background: "#FCF9F5", clipPath: PANEL_NOTCH_CLIP }}
+        >
+          <div className="flex items-center justify-between px-6 py-4 sticky top-0 z-10" style={{ background: "#FCF9F5", borderBottom: "2px solid #0F0D0A" }}>
+            <h2 className="text-xl font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>{stepTitle}</h2>
+            <button onClick={onClose} className="opacity-40 hover:opacity-100"><X size={18} /></button>
+          </div>
+
+          <div className="px-6 py-6">
+            {step === "paste" && (
+              <>
+                <p className="text-sm text-muted-foreground mb-4">Paste any text with links — URLs will be extracted automatically.</p>
+                <textarea
+                  className="w-full h-44 rounded-lg p-4 text-sm resize-none focus:outline-none"
+                  style={{ border: "1.5px solid #0F0D0A", background: "#FFF8F0" }}
+                  placeholder={"https://x.com/someone/status/...\nhttps://some-tool.com\n\nOr paste a whole block of text with links in it."}
+                  value={rawText}
+                  onChange={e => setRawText(e.target.value)}
+                />
+                {error && <p className="text-destructive text-sm mt-2">{error}</p>}
+                <button
+                  onClick={handleParse}
+                  disabled={!rawText.trim()}
+                  className="mt-4 flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-40"
+                  style={{ background: "#0F0D0A", color: "#FFEADA", border: "2px solid #0F0D0A" }}
+                >
+                  Parse links <ArrowRight size={15} />
+                </button>
+              </>
+            )}
+
+            {step === "review" && (
+              <>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm text-muted-foreground">Add a note for social links — helps Claude understand what they're about.</p>
+                  <button onClick={() => setStep("paste")} className="shrink-0 ml-3 text-sm text-muted-foreground hover:text-foreground">← back</button>
+                </div>
+                <div className="space-y-2.5 max-h-[50vh] overflow-y-auto pr-1">
+                  {parsedLinks.map((link, i) => (
+                    <div key={link.url} className="rounded-lg p-3" style={{ background: "#FFF8F0", border: "1.5px solid #0F0D0A" }}>
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-xs px-2 py-0.5 rounded-lg font-medium" style={{ background: "#FFE1A1", border: "1px solid #0F0D0A" }}>{link.platform}</span>
+                          <span className="text-xs text-muted-foreground truncate opacity-60">{link.url}</span>
+                        </div>
+                        <button onClick={() => setParsedLinks(prev => prev.filter((_, idx) => idx !== i))} className="shrink-0 opacity-40 hover:opacity-100"><X size={13} /></button>
+                      </div>
+                      {isSocialPlatform(link.platform) && (
+                        <input type="text" placeholder="What is this about?"
+                          value={link.note}
+                          onChange={e => setParsedLinks(prev => prev.map((l, idx) => idx === i ? { ...l, note: e.target.value } : l))}
+                          className="w-full text-xs rounded-lg px-3 py-1.5 focus:outline-none"
+                          style={{ border: "1px solid rgba(15,13,10,0.3)", background: "#FCF9F5" }}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {error && <p className="text-destructive text-sm mt-3">{error}</p>}
+                <button
+                  onClick={handleImport}
+                  className="mt-5 flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold"
+                  style={{ background: "#0F0D0A", color: "#FFEADA", border: "2px solid #0F0D0A" }}
+                >
+                  Characterise & save <ArrowRight size={15} />
+                </button>
+              </>
+            )}
+
+            {step === "processing" && (
+              <div className="py-8 text-center">
+                <Loader2 size={28} className="animate-spin mx-auto mb-5 opacity-40" />
+                <p className="text-sm font-medium mb-5">{status}</p>
+                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "#FFDEB3", border: "1px solid #0F0D0A" }}>
+                  <motion.div className="h-full rounded-full" style={{ background: "#0F0D0A" }} animate={{ width: `${progress}%` }} transition={{ duration: 0.5 }} />
+                </div>
+              </div>
+            )}
+
+            {step === "done" && (
+              <div className="py-8 text-center">
+                <div className="w-14 h-14 rounded-lg flex items-center justify-center mx-auto mb-5" style={{ background: "#FFE1A1", border: "2px solid #0F0D0A", boxShadow: "3px 3px 0 #0F0D0A" }}>
+                  <Check size={22} />
+                </div>
+                <p className="text-sm text-muted-foreground mb-6">
+                  {importedCount} saved{skippedCount > 0 && `, ${skippedCount} duplicate${skippedCount !== 1 ? "s" : ""} skipped`}.
+                </p>
+                <button onClick={onClose} className="px-5 py-2.5 rounded-lg text-sm font-semibold" style={{ background: "#0F0D0A", color: "#FFEADA", border: "2px solid #0F0D0A" }}>
+                  Done
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
   )
 }
 
@@ -2067,8 +2184,8 @@ function SearchView({ links, visuals, thoughts, initialQuery, onLinkClick, onVis
             placeholder="Search by vibe, topic, feeling..."
             value={query}
             onChange={e => setQuery(e.target.value)}
-            className="w-full pl-11 pr-12 py-4 rounded-sm text-base focus:outline-none"
-            style={{ border: "2px solid #0F0D0A", background: "#FCF9F5", fontFamily: "'Space Grotesk', sans-serif", boxShadow: "4px 4px 0 #0F0D0A" }}
+            className="w-full pl-11 pr-12 py-4 rounded-lg text-base focus:outline-none"
+            style={{ border: "2px solid #0F0D0A", background: "#FCF9F5", fontFamily: "'Manrope', sans-serif", boxShadow: "4px 4px 0 #0F0D0A" }}
           />
           <button onClick={onClose} className="absolute right-4 top-1/2 -translate-y-1/2 opacity-40 hover:opacity-100">
             <X size={18} />
@@ -2131,13 +2248,14 @@ function CategoryView({ category, links, onBack, onCardClick }: {
         <div className="flex items-center gap-4 mb-8">
           <button
             onClick={onBack}
-            className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-sm"
+            className="inline-flex items-center justify-center p-2.5 rounded-lg"
             style={{ border: "1.5px solid #0F0D0A", background: "#FCF9F5", boxShadow: "2px 2px 0 #0F0D0A" }}
+            aria-label="Back"
           >
-            <ArrowLeft size={14} /> Desk
+            <ArrowLeft size={14} />
           </button>
           <div>
-            <h2 className="text-2xl font-semibold" style={{ fontFamily: "'DM Serif Display', serif" }}>{category}</h2>
+            <h2 className="text-2xl font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>{category}</h2>
             <p className="text-xs text-muted-foreground opacity-60">{links.length} {links.length === 1 ? "link" : "links"}</p>
           </div>
         </div>
@@ -2151,75 +2269,8 @@ function CategoryView({ category, links, onBack, onCardClick }: {
   )
 }
 
-// ─── Visual Category Stack & View ──────────────────────────────────────────
-
-function VisualCategoryStack({ category, visuals, paletteIndex, minCount, maxCount, onClick }: {
-  category: string
-  visuals: SavedVisual[]
-  paletteIndex: number
-  minCount: number
-  maxCount: number
-  onClick: () => void
-}) {
-  const palette = STACK_PALETTES[paletteIndex % STACK_PALETTES.length]
-  // Matches what VisualCardContent actually needs at the new shared width:
-  // a square placeholder photo (width minus its own 10px/side padding) plus
-  // the caption below it.
-  const cardH = 348
-
-  const layerCount = Math.round(mapRange(visuals.length, minCount, maxCount, 1, 5))
-  const stagger = mapRange(visuals.length, minCount, maxCount, 1.5, 6)
-  const backLayers = Array.from({ length: Math.max(0, layerCount - 1) }, (_, k) => layerCount - 1 - k)
-  const tilt = getStackTilt(category)
-
-  // Synthetic "visual" so the front sheet is the exact polaroid component —
-  // same frame/caption layout — reading the category instead of one image.
-  // Vibes are pulled from the category's real images so the tag row isn't empty.
-  const categoryVibes = [...new Set(visuals.flatMap(v => Array.isArray(v.vibe) ? v.vibe : []))].slice(0, 2)
-  const categoryCard: SavedVisual = {
-    id: category, storage_path: "", public_url: "", title: category, slug: "",
-    description: "", vibe: categoryVibes, tags: [], category, moodboard_id: null, user_note: "", created_at: "",
-  }
-
-  return (
-    <motion.div
-      whileHover={{ y: -8, transition: { type: "spring", stiffness: 400, damping: 20 } }}
-      whileTap={{ scale: 0.96 }}
-      onClick={onClick}
-      className="cursor-pointer relative"
-      style={{ width: STACK_CARD_W + STACK_PADDING * 2, height: cardH + STACK_PADDING * 2, rotate: tilt }}
-    >
-      {/* Every layer built from the same polaroid frame as VisualCardContent,
-          so the whole pile reads as one family of card. */}
-      {backLayers.map(i => (
-        <div
-          key={i}
-          className="absolute rounded-sm"
-          style={{
-            left: STACK_PADDING - i * stagger * 0.4,
-            top: STACK_PADDING + i * stagger * 0.3,
-            width: STACK_CARD_W, height: cardH,
-            background: i % 2 === 0 ? palette.back : palette.mid,
-            border: "2px solid #0F0D0A",
-            transform: `rotate(${(i % 2 === 0 ? -(i * 2) : (i * 2)) * 0.6}deg)`,
-            boxShadow: "4px 4px 0 #0F0D0A",
-          }}
-        />
-      ))}
-      {/* Front sheet — the exact polaroid component */}
-      <div
-        className="absolute overflow-hidden rounded-sm"
-        style={{ left: STACK_PADDING, top: STACK_PADDING, width: STACK_CARD_W, height: cardH, transform: "rotate(1deg)" }}
-      >
-        <VisualCardContent visual={categoryCard} placeholderColor={palette.mid} />
-      </div>
-      <div
-        className="absolute rounded-full"
-        style={{ width: 14, height: 14, background: "#F53535", border: "2px solid #0F0D0A", top: STACK_PADDING + 8, right: STACK_PADDING + 10, boxShadow: "1px 1px 0 #0F0D0A" }}
-      />
-    </motion.div>
-  )
-}
+// ─── Visual Category View ───────────────────────────────────────────────────
+// The category stack itself is CategoryStack (shared with Links) — see below.
 
 function VisualCategoryView({ category, visuals, onBack, onCardClick }: {
   category: string
@@ -2239,13 +2290,14 @@ function VisualCategoryView({ category, visuals, onBack, onCardClick }: {
         <div className="flex items-center gap-4 mb-8">
           <button
             onClick={onBack}
-            className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-sm"
+            className="inline-flex items-center justify-center p-2.5 rounded-lg"
             style={{ border: "1.5px solid #0F0D0A", background: "#FCF9F5", boxShadow: "2px 2px 0 #0F0D0A" }}
+            aria-label="Back"
           >
-            <ArrowLeft size={14} /> Categories
+            <ArrowLeft size={14} />
           </button>
           <div>
-            <h2 className="text-2xl font-semibold" style={{ fontFamily: "'DM Serif Display', serif" }}>{category}</h2>
+            <h2 className="text-2xl font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>{category}</h2>
             <p className="text-xs text-muted-foreground opacity-60">{visuals.length} {visuals.length === 1 ? "image" : "images"}</p>
           </div>
         </div>
@@ -2261,10 +2313,9 @@ function VisualCategoryView({ category, visuals, onBack, onCardClick }: {
 
 // ─── Visual Board View ──────────────────────────────────────────────────────
 
-function VisualBoardView({ visuals, onCardClick, onUploaded, visualView, onSetVisualView, activeVisualCategory, onCategoryClick, onBackFromCategory, onRecluster, reclustering }: {
+function VisualBoardView({ visuals, onCardClick, visualView, onSetVisualView, activeVisualCategory, onCategoryClick, onBackFromCategory, onRecluster, reclustering }: {
   visuals: SavedVisual[]
   onCardClick: (v: SavedVisual) => void
-  onUploaded: (v: SavedVisual) => void
   visualView: "all" | "categories" | "categoryDetail"
   onSetVisualView: (v: "all" | "categories") => void
   activeVisualCategory: string | null
@@ -2300,20 +2351,18 @@ function VisualBoardView({ visuals, onCardClick, onUploaded, visualView, onSetVi
 
   return (
     <div className="flex-1 overflow-y-auto px-8 py-8">
-      <VisualUploadZone onUploaded={onUploaded} />
-
       <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-1 rounded-sm p-1" style={{ border: "1.5px solid rgba(15,13,10,0.2)" }}>
+        <div className="flex items-center gap-1 rounded-lg p-1" style={{ border: "1.5px solid rgba(15,13,10,0.2)" }}>
           <button
             onClick={() => onSetVisualView("all")}
-            className="px-3 py-1.5 rounded-sm text-xs font-medium transition-colors"
+            className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
             style={visualView === "all" ? { background: "#0F0D0A", color: "#FFEADA" } : { color: "#6B5B4A" }}
           >
             All images
           </button>
           <button
             onClick={() => onSetVisualView("categories")}
-            className="px-3 py-1.5 rounded-sm text-xs font-medium transition-colors"
+            className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
             style={visualView === "categories" ? { background: "#0F0D0A", color: "#FFEADA" } : { color: "#6B5B4A" }}
           >
             Categories
@@ -2333,7 +2382,7 @@ function VisualBoardView({ visuals, onCardClick, onUploaded, visualView, onSetVi
 
       {!visuals.length ? (
         <div className="flex items-center justify-center py-16">
-          <p className="text-sm text-muted-foreground opacity-60">Your visual board is empty — drop some images above to get started</p>
+          <p className="text-sm text-muted-foreground opacity-60">Your visual board is empty — click "Add images" above to get started</p>
         </div>
       ) : visualView === "all" ? (
         // same fix as "All links": real masonry (drops each card into the
@@ -2358,7 +2407,16 @@ function VisualBoardView({ visuals, onCardClick, onUploaded, visualView, onSetVi
               key={cat}
               variants={{ hidden: { opacity: 0, y: 30 }, visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 280, damping: 22 } } }}
             >
-              <VisualCategoryStack category={cat} visuals={grouped[cat]} paletteIndex={i} minCount={minCount} maxCount={maxCount} onClick={() => onCategoryClick(cat)} />
+              <CategoryStack
+                category={cat}
+                count={grouped[cat].length}
+                unitLabel="image"
+                tags={[...new Set(grouped[cat].flatMap(v => Array.isArray(v.vibe) ? v.vibe : []))]}
+                paletteIndex={i}
+                minCount={minCount}
+                maxCount={maxCount}
+                onClick={() => onCategoryClick(cat)}
+              />
             </motion.div>
           ))}
         </motion.div>
@@ -2402,9 +2460,9 @@ function LandingView({ links, linksView, onSetLinksView, onCardClick, onCategory
       >
         {/* Empty desk illustration */}
         <div className="relative mx-auto mb-6" style={{ width: 160, height: 180 }}>
-          <div className="absolute inset-0 rounded-sm" style={{ background: "#FFDEB3", border: "2px solid #0F0D0A", transform: "rotate(-6deg)", boxShadow: "3px 3px 0 #0F0D0A" }} />
-          <div className="absolute inset-0 rounded-sm" style={{ background: "#FCF9F5", border: "2px solid #0F0D0A", transform: "rotate(-1deg)", boxShadow: "3px 3px 0 #0F0D0A" }} />
-          <div className="absolute inset-0 rounded-sm flex items-center justify-center" style={{ background: "#FFFFFF", border: "2px solid #0F0D0A", boxShadow: "4px 4px 0 #0F0D0A" }}>
+          <div className="absolute inset-0 rounded-lg" style={{ background: "#FFDEB3", border: "2px solid #0F0D0A", transform: "rotate(-6deg)", boxShadow: "3px 3px 0 #0F0D0A" }} />
+          <div className="absolute inset-0 rounded-lg" style={{ background: "#FCF9F5", border: "2px solid #0F0D0A", transform: "rotate(-1deg)", boxShadow: "3px 3px 0 #0F0D0A" }} />
+          <div className="absolute inset-0 rounded-lg flex items-center justify-center" style={{ background: "#FFFFFF", border: "2px solid #0F0D0A", boxShadow: "4px 4px 0 #0F0D0A" }}>
             <Plus size={28} className="opacity-20" />
           </div>
         </div>
@@ -2416,17 +2474,17 @@ function LandingView({ links, linksView, onSetLinksView, onCardClick, onCategory
   return (
     <div className="flex-1 overflow-y-auto px-8 py-8">
       <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-1 rounded-sm p-1" style={{ border: "1.5px solid rgba(15,13,10,0.2)" }}>
+        <div className="flex items-center gap-1 rounded-lg p-1" style={{ border: "1.5px solid rgba(15,13,10,0.2)" }}>
           <button
             onClick={() => onSetLinksView("all")}
-            className="px-3 py-1.5 rounded-sm text-xs font-medium transition-colors"
+            className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
             style={linksView === "all" ? { background: "#0F0D0A", color: "#FFEADA" } : { color: "#6B5B4A" }}
           >
             All links
           </button>
           <button
             onClick={() => onSetLinksView("categories")}
-            className="px-3 py-1.5 rounded-sm text-xs font-medium transition-colors"
+            className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
             style={linksView === "categories" ? { background: "#0F0D0A", color: "#FFEADA" } : { color: "#6B5B4A" }}
           >
             Categories
@@ -2472,7 +2530,9 @@ function LandingView({ links, linksView, onSetLinksView, onCardClick, onCategory
             >
               <CategoryStack
                 category={cat}
-                links={grouped[cat]}
+                count={grouped[cat].length}
+                unitLabel="link"
+                tags={[...new Set(grouped[cat].flatMap(l => Array.isArray(l.tags) ? l.tags : []))]}
                 paletteIndex={i}
                 minCount={minCount}
                 maxCount={maxCount}
@@ -2508,9 +2568,9 @@ function LoginView() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: "#FFEADA", fontFamily: "'Space Grotesk', sans-serif" }}>
+    <div className="min-h-screen flex items-center justify-center" style={{ background: "#FFEADA", fontFamily: "'Manrope', sans-serif" }}>
       <div className="w-full max-w-sm px-8 py-10" style={{ background: "#FCF9F5", border: "2px solid #0F0D0A", boxShadow: "4px 4px 0 #0F0D0A" }}>
-        <p className="text-2xl font-semibold mb-1" style={{ fontFamily: "'DM Serif Display', serif" }}>linkdesk</p>
+        <p className="text-2xl font-semibold mb-1" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>linkdesk</p>
         <p className="text-sm opacity-50 mb-8">Your personal link desk.</p>
         {sent ? (
           <p className="text-sm">Check your email — a magic link is on its way.</p>
@@ -2522,10 +2582,10 @@ function LoginView() {
               type="email" value={email} onChange={e => setEmail(e.target.value)}
               placeholder="your@email.com" required
               className="px-3 py-2.5 text-sm w-full outline-none"
-              style={{ border: "2px solid #0F0D0A", background: "#FFEADA", fontFamily: "'Space Grotesk', sans-serif" }}
+              style={{ border: "2px solid #0F0D0A", background: "#FFEADA", fontFamily: "'Manrope', sans-serif" }}
             />
             <button type="submit" disabled={loading}
-              className="px-4 py-2.5 text-sm font-semibold"
+              className="px-4 py-2.5 text-sm font-semibold rounded-lg"
               style={{ background: "#0F0D0A", color: "#FFEADA", border: "2px solid #0F0D0A", boxShadow: "2px 2px 0 rgba(15,13,10,0.3)" }}
             >
               {loading ? "Sending..." : "Send magic link"}
@@ -2544,9 +2604,10 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true)
   const [links, setLinks] = useState<SavedLink[]>([])
   const [loading, setLoading] = useState(true)
-  const [view, setView] = useState<"desk" | "category" | "import">("desk")
+  const [view, setView] = useState<"desk" | "category">("desk")
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const [linksView, setLinksView] = useState<"all" | "categories">("all")
+  const [showLinkImport, setShowLinkImport] = useState(false)
   const [selectedLink, setSelectedLink] = useState<SavedLink | null>(null)
   const [showSearch, setShowSearch] = useState(false)
   const [reclustering, setReclustering] = useState(false)
@@ -2565,6 +2626,7 @@ export default function App() {
   const [searchInitialQuery, setSearchInitialQuery] = useState("")
   const [composerOpen, setComposerOpen] = useState(false)
   const [selectedThought, setSelectedThought] = useState<SavedThought | null>(null)
+  const [showImageUpload, setShowImageUpload] = useState(false)
 
   const categories = useMemo(() => [...new Set(links.map(l => l.category).filter(Boolean))].sort(), [links])
 
@@ -2671,7 +2733,6 @@ export default function App() {
 
   function handleImportDone() {
     fetchLinks()
-    setView("desk")
   }
 
   const categoryLinks = useMemo(() => {
@@ -2687,7 +2748,7 @@ export default function App() {
   if (!session) return <LoginView />
 
   return (
-    <div style={{ width: "100%", height: "100vh", fontFamily: "Georgia, serif", background: "#FFDEB3", display: "flex", flexDirection: "column", padding: 20, boxSizing: "border-box", overflow: "hidden" }}>
+    <div style={{ width: "100%", height: "100vh", fontFamily: "'Manrope', sans-serif", background: "#FFDEB3", display: "flex", flexDirection: "column", padding: 20, boxSizing: "border-box", overflow: "hidden" }}>
     <div className="folder" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
 
       {/* CSS tabs — fixed size, fixed gap, fixed radius */}
@@ -2709,31 +2770,40 @@ export default function App() {
           <button
             onClick={() => { setBoard("links"); setView("desk"); setActiveCategory(null) }}
             className="text-xl font-semibold tracking-tight"
-            style={{ fontFamily: "'DM Serif Display', serif" }}
+            style={{ fontFamily: "'Space Grotesk', sans-serif" }}
           >
             linkdesk
           </button>
           <div className="flex items-center gap-2">
             <button
               onClick={() => { setSearchInitialQuery(""); setShowSearch(true) }}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-sm text-sm font-medium"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium"
               style={{ border: "1.5px solid rgba(15,13,10,0.25)", background: "transparent" }}
             >
               <Search size={14} className="opacity-60" /> Search
             </button>
             {board === "links" && (
               <button
-                onClick={() => setView("import")}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-sm text-sm font-semibold"
+                onClick={() => setShowLinkImport(true)}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold"
                 style={{ background: "#0F0D0A", color: "#FFEADA", border: "2px solid #0F0D0A", boxShadow: "2px 2px 0 rgba(15,13,10,0.3)" }}
               >
                 <Plus size={14} /> Add links
               </button>
             )}
+            {board === "images" && (
+              <button
+                onClick={() => setShowImageUpload(true)}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold"
+                style={{ background: "#0F0D0A", color: "#FFEADA", border: "2px solid #0F0D0A", boxShadow: "2px 2px 0 rgba(15,13,10,0.3)" }}
+              >
+                <Plus size={14} /> Add images
+              </button>
+            )}
             {board === "thoughts" && (
               <button
                 onClick={() => setComposerOpen(true)}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-sm text-sm font-semibold"
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold"
                 style={{ background: "#0F0D0A", color: "#FFEADA", border: "2px solid #0F0D0A", boxShadow: "2px 2px 0 rgba(15,13,10,0.3)" }}
               >
                 <Plus size={14} /> New Post
@@ -2759,7 +2829,6 @@ export default function App() {
               <VisualBoardView
                 visuals={visuals}
                 onCardClick={visual => setSelectedVisual(visual)}
-                onUploaded={handleVisualUploaded}
                 visualView={visualView}
                 onSetVisualView={setVisualView}
                 activeVisualCategory={activeVisualCategory}
@@ -2789,10 +2858,6 @@ export default function App() {
           ) : loading ? (
             <div className="flex-1 flex items-center justify-center">
               <Loader2 size={24} className="animate-spin opacity-30" />
-            </div>
-          ) : view === "import" ? (
-            <div className="flex-1 overflow-y-auto">
-              <ImportView onImportDone={handleImportDone} onCancel={() => setView("desk")} />
             </div>
           ) : view === "category" && activeCategory ? (
             <CategoryView
@@ -2866,6 +2931,26 @@ export default function App() {
               setVisuals(prev => prev.map(v => v.id === updated.id ? updated : v))
               setSelectedVisual(updated)
             }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Image upload panel */}
+      <AnimatePresence>
+        {showImageUpload && (
+          <ImageUploadPanel
+            onClose={() => setShowImageUpload(false)}
+            onUploaded={handleVisualUploaded}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Import (add links) panel */}
+      <AnimatePresence>
+        {showLinkImport && (
+          <ImportPanel
+            onImportDone={handleImportDone}
+            onClose={() => setShowLinkImport(false)}
           />
         )}
       </AnimatePresence>
