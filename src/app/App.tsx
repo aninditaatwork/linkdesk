@@ -2669,10 +2669,17 @@ export default function App() {
     const params = new URLSearchParams(window.location.search)
     const sharedUrl = params.get("url") || ""
     const sharedTextParam = params.get("text") || ""
+    const pendingImage = params.get("pendingImage") || ""
     const combined = [sharedUrl, sharedTextParam].filter(Boolean).join("\n")
     if (combined) {
       setSharedText(combined)
       setShowLinkImport(true)
+    }
+    if (pendingImage) {
+      setBoard("images")
+      claimPendingImage(pendingImage)
+    }
+    if (combined || pendingImage) {
       window.history.replaceState({}, "", window.location.pathname)
     }
   }, [])
@@ -2693,6 +2700,33 @@ export default function App() {
 
   function handleVisualUploaded(visual: SavedVisual) {
     setVisuals(prev => [visual, ...prev])
+  }
+
+  async function claimPendingImage(filename: string) {
+    try {
+      const { data: blob, error: downloadError } = await supabase.storage
+        .from("share-inbox")
+        .download(filename)
+      if (downloadError || !blob) {
+        console.error("Could not download pending shared image:", downloadError?.message)
+        return
+      }
+      const file = new File([blob], filename, { type: blob.type || "image/jpeg" })
+      const dataUrl = await compressImageFile(file)
+      const response = await fetch(CHARACTERIZE_VISUAL_URL, {
+        method: "POST",
+        headers: await authHeader(),
+        body: JSON.stringify({ image: dataUrl, filename }),
+      })
+      if (response.ok) {
+        const { visual } = await response.json()
+        if (visual) handleVisualUploaded(visual)
+      }
+      // Clean up the temporary file either way, so share-inbox doesn't fill up
+      await supabase.storage.from("share-inbox").remove([filename])
+    } catch (err) {
+      console.error("Failed to claim pending shared image:", err)
+    }
   }
 
   function handleThoughtSaved(thought: SavedThought) {
